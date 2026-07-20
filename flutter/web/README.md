@@ -12,4 +12,4 @@
 - `ogvjs-1.8.6/`、`yuv-canvas-1.2.6.js`、`libopus.js/.wasm`、`assets/`：不在 git 中，由 `web_deps.tar.gz` 提供（见 .gitignore）
 - `index.html` 中 `<script src="/webclient-config/index.js">` 为 rustdesk-api 服务端动态注入的 API 配置，部署替换资源时必须保留
 
-构建与部署流程见 workspace 根：`docs/sop/webclient-build.md`
+构建与部署流程见管理仓：[`docs/sop/webclient-build.md`](https://github.com/Doshine/yinhe/blob/master/docs/sop/webclient-build.md)

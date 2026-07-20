@@ -6,7 +6,7 @@ import '../../common.dart';
 /// a primary message, an optional secondary message and an optional
 /// action button.
 ///
-/// Visual tokens (see docs/design/tokens.json):
+/// Visual tokens (see docs/design/tokens.json in Doshine/yinhe):
 /// - textSecondary: light #646A73 / dark #9AA4B2 (primary message, 15pt)
 /// - textTertiary:  light #9AA0A6 / dark #6B7280 (secondary message, 13pt)
 /// - accent ring:   MyTheme.accent (#2F80FF) at low opacity
