@@ -797,6 +797,14 @@ void msgBox(SessionID sessionId, String type, String title, String text,
         ));
     buttons.insert(0, button);
   }
+  if (title == "Connection Error") {
+    // W5: allow copying the error details for support/diagnostics.
+    buttons.add(dialogButton('复制错误信息', onPressed: () {
+      Clipboard.setData(
+          ClipboardData(text: '${translate(title)}: ${translate(text)}'));
+      showToast(translate('已复制'));
+    }, isOutline: true));
+  }
   if (link.isNotEmpty) {
     buttons.insert(0, dialogButton('JumpLink', onPressed: jumplink));
   }

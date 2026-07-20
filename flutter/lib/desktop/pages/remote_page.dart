@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -81,6 +82,8 @@ class _RemotePageState extends State<RemotePage>
   String keyboardMode = "legacy";
   bool _isWindowBlur = false;
   final _cursorOverImage = false.obs;
+  // Whether the file-drop mask is visible over the session canvas (W5).
+  final _dropHereVisible = false.obs;
   late RxBool _showRemoteCursor;
   late RxBool _zoomCursor;
   late RxBool _remoteCursorMoved;
@@ -143,8 +146,9 @@ class _RemotePageState extends State<RemotePage>
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: []);
-      _ffi.dialogManager
-          .showLoading(translate('Connecting...'), onCancel: closeConnection);
+      // Staged connecting card (W5). Same cancel contract as the previous
+      // showLoading('Connecting...'): cancel dismisses and closes the session.
+      _ffi.ffiModel.showConnectingStageCard(_ffi.dialogManager, sessionId);
     });
     WakelockManager.enable(_uniqueKey);
 
@@ -422,7 +426,7 @@ class _RemotePageState extends State<RemotePage>
         );
 
     bodyWidget() {
-      return Stack(
+      final content = Stack(
         children: [
           Container(
               color: kColorCanvas,
@@ -484,6 +488,66 @@ class _RemotePageState extends State<RemotePage>
             ],
           ),
         ],
+      );
+      // W5: accept files dragged into the session window. Only the
+      // presentation/drop entry is added here; the drop reuses the existing
+      // file-transfer entry (same as the session toolbar's "Transfer file"
+      // menu) and no new transfer channel is created.
+      return DropTarget(
+        onDragEntered: (_) {
+          // Only advertise the drop when the session is ready; the file
+          // transfer entry needs an established session (conn token).
+          if (_ffi.ffiModel.pi.isSet.isTrue) {
+            _dropHereVisible.value = true;
+          }
+        },
+        onDragExited: (_) => _dropHereVisible.value = false,
+        onDragDone: (details) {
+          _dropHereVisible.value = false;
+          if (details.files.isEmpty) return;
+          if (_ffi.ffiModel.pi.isSet.isFalse) return;
+          final connToken = bind.sessionGetConnToken(sessionId: sessionId);
+          connect(context, widget.id,
+              isFileTransfer: true, connToken: connToken);
+        },
+        child: Stack(
+          children: [
+            content,
+            // Brand drop mask shown while dragging files over the session.
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Obx(() => AnimatedOpacity(
+                      opacity: _dropHereVisible.value ? 1.0 : 0.0,
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeInOut,
+                      child: Container(
+                        margin: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: MyTheme.accent.withOpacity(0.12),
+                          border: Border.all(color: MyTheme.accent, width: 2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.upload_file,
+                                  size: 40, color: MyTheme.accent),
+                              const SizedBox(height: 8),
+                              Text(translate('松开以发送文件'),
+                                  style: const TextStyle(
+                                      fontSize: 15,
+                                      color: MyTheme.accent,
+                                      fontWeight: FontWeight.w500)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    )),
+              ),
+            ),
+          ],
+        ),
       );
     }
 

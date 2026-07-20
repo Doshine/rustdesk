@@ -233,6 +233,8 @@ class _ConnectionPageState extends State<ConnectionPage>
     }
     Get.put<TextEditingController>(_idEditingController);
     Get.put<IDTextEditingController>(_idController);
+    // Also registered so that the empty state action can focus the ID input.
+    Get.put<FocusNode>(_idFocusNode);
     windowManager.addListener(this);
   }
 
@@ -249,6 +251,9 @@ class _ConnectionPageState extends State<ConnectionPage>
     }
     if (Get.isRegistered<TextEditingController>()) {
       Get.delete<TextEditingController>();
+    }
+    if (Get.isRegistered<FocusNode>()) {
+      Get.delete<FocusNode>();
     }
     super.dispose();
   }

@@ -17,6 +17,7 @@ import '../../common.dart';
 import '../../models/peer_model.dart';
 import '../../models/platform_model.dart';
 import 'peer_card.dart';
+import 'empty_state.dart';
 
 typedef PeerFilter = bool Function(Peer peer);
 typedef PeerCardBuilder = Widget Function(Peer peer);
@@ -187,32 +188,42 @@ class _PeersViewState extends State<_PeersView>
       child: Consumer<Peers>(builder: (context, peers, child) {
         if (peers.peers.isEmpty) {
           gFFI.peerTabModel.setCurrentTabCachedPeers([]);
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.sentiment_very_dissatisfied_rounded,
-                  color: Theme.of(context).tabBarTheme.labelColor,
-                  size: 40,
-                ).paddingOnly(bottom: 10),
-                Text(
-                  translate(
-                    _emptyMessages[widget.peers.loadEvent] ?? 'Empty',
-                  ),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Theme.of(context).tabBarTheme.labelColor,
-                  ),
-                ),
-              ],
-            ),
-          );
+          return _buildEmptyState();
         } else {
           return _buildPeersView(peers);
         }
       }),
     );
+  }
+
+  Widget _buildEmptyState() {
+    switch (widget.peers.loadEvent) {
+      case LoadEvent.recent:
+        return EmptyState.noPeers(onConnect: _focusConnectInput);
+      case LoadEvent.favorite:
+        return EmptyState.noFavorites();
+      case LoadEvent.lan:
+        return EmptyState.noDiscovered();
+      default:
+        // Address book (logged in but empty) and other lists keep their
+        // existing translated tip, split into title / subtitle on '\n'.
+        final msg =
+            translate(_emptyMessages[widget.peers.loadEvent] ?? 'Empty');
+        final parts = msg.split('\n');
+        return EmptyState(
+          icon: Icons.menu_book_outlined,
+          title: parts.first,
+          subtitle: parts.length > 1 ? parts.sublist(1).join('\n') : null,
+        );
+    }
+  }
+
+  // Focus the ID input on the connection page. The focus node is registered
+  // by the connection pages (mobile and desktop) via `Get.put`.
+  void _focusConnectInput() {
+    if (Get.isRegistered<FocusNode>()) {
+      Get.find<FocusNode>().requestFocus();
+    }
   }
 
   onVisibilityChanged(VisibilityInfo info) {
@@ -236,6 +247,11 @@ class _PeersViewState extends State<_PeersView>
           if (snapshot.hasData) {
             var peers = snapshot.data!;
             if (peers.length > 1000) peers = peers.sublist(0, 1000);
+            if (peers.isEmpty) {
+              // Filtered out by the search text or the tag filter.
+              gFFI.peerTabModel.setCurrentTabCachedPeers([]);
+              return EmptyState.noSearchResult();
+            }
             gFFI.peerTabModel.setCurrentTabCachedPeers(peers);
             buildOnePeer(Peer peer, bool isPortrait) {
               final visibilityChild = VisibilityDetector(
