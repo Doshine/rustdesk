@@ -41,6 +41,8 @@ const double _kContentFontSize = 15;
 const Color _accentColor = MyTheme.accent;
 const String _kSettingPageControllerTag = 'settingPageController';
 const String _kSettingPageTabKeyTag = 'settingPageTabKey';
+// tokens.json motion.duration.normal (200ms); easing.standard maps to Curves.fastOutSlowIn
+const Duration _kCardCollapseDuration = Duration(milliseconds: 200);
 
 class _TabInfo {
   late final SettingsTabKey key;
@@ -754,7 +756,11 @@ class _GeneralState extends State<_General> {
       String root_dir = map['root_dir']!;
       bool root_dir_exists = map['root_dir_exists']!;
       bool user_dir_exists = map['user_dir_exists']!;
-      return _Card(title: 'Recording', children: [
+      return _Card(
+          title: 'Recording',
+          collapsible: true,
+          initiallyExpanded: false,
+          children: [
         if (!bind.isOutgoingOnly())
           _OptionCheckBox(context, 'Automatically record incoming sessions',
               kOptionAllowAutoRecordIncoming),
@@ -2059,7 +2065,11 @@ class _DisplayState extends State<_Display> {
   Widget other(BuildContext context) {
     final children =
         otherDefaultSettings().map((e) => otherRow(e.$1, e.$2)).toList();
-    return _Card(title: 'Other Default Options', children: children);
+    return _Card(
+        title: 'Other Default Options',
+        collapsible: true,
+        initiallyExpanded: false,
+        children: children);
   }
 }
 
@@ -2463,7 +2473,7 @@ class _AboutState extends State<_About> {
                     style: linkStyle,
                   ).marginSymmetric(vertical: 4.0)),
               Container(
-                decoration: const BoxDecoration(color: Color(0xFF2c8cff)),
+                decoration: const BoxDecoration(color: MyTheme.accent),
                 padding:
                     const EdgeInsets.symmetric(vertical: 24, horizontal: 8),
                 child: SelectionArea(
@@ -2505,7 +2515,17 @@ class _AboutState extends State<_About> {
 Widget _Card(
     {required String title,
     required List<Widget> children,
-    List<Widget>? title_suffix}) {
+    List<Widget>? title_suffix,
+    bool collapsible = false,
+    bool initiallyExpanded = true}) {
+  if (collapsible) {
+    return _CollapsibleCard(
+      title: title,
+      titleSuffix: title_suffix,
+      initiallyExpanded: initiallyExpanded,
+      children: children,
+    );
+  }
   return Row(
     children: [
       Flexible(
@@ -2536,6 +2556,92 @@ Widget _Card(
       ),
     ],
   );
+}
+
+// Same look as [_Card] above, but the whole title row toggles the content
+// between expanded and collapsed (title row only) states.
+class _CollapsibleCard extends StatefulWidget {
+  final String title;
+  final List<Widget> children;
+  final List<Widget>? titleSuffix;
+  final bool initiallyExpanded;
+
+  const _CollapsibleCard({
+    Key? key,
+    required this.title,
+    required this.children,
+    this.titleSuffix,
+    this.initiallyExpanded = true,
+  }) : super(key: key);
+
+  @override
+  State<_CollapsibleCard> createState() => _CollapsibleCardState();
+}
+
+class _CollapsibleCardState extends State<_CollapsibleCard> {
+  late bool _expanded = widget.initiallyExpanded;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Flexible(
+          child: SizedBox(
+            width: _kCardFixedWidth,
+            child: Card(
+              child: Column(
+                children: [
+                  MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => setState(() => _expanded = !_expanded),
+                      child: Row(
+                        children: [
+                          Expanded(
+                              child: Text(
+                            translate(widget.title),
+                            textAlign: TextAlign.start,
+                            style: const TextStyle(
+                              fontSize: _kTitleFontSize,
+                            ),
+                          )),
+                          ...?widget.titleSuffix,
+                          AnimatedRotation(
+                            turns: _expanded ? 0.5 : 0.0,
+                            duration: _kCardCollapseDuration,
+                            curve: Curves.fastOutSlowIn,
+                            child: const Icon(Icons.expand_more),
+                          ).marginOnly(right: _kContentHMargin),
+                        ],
+                      ).marginOnly(
+                          left: _kContentHMargin, top: 10, bottom: 10),
+                    ),
+                  ),
+                  AnimatedCrossFade(
+                    firstChild: Column(
+                      children: widget.children
+                          .map((e) =>
+                              e.marginOnly(top: 4, right: _kContentHMargin))
+                          .toList(),
+                    ),
+                    secondChild: const SizedBox(width: double.infinity),
+                    crossFadeState: _expanded
+                        ? CrossFadeState.showFirst
+                        : CrossFadeState.showSecond,
+                    duration: _kCardCollapseDuration,
+                    firstCurve: Curves.fastOutSlowIn,
+                    secondCurve: Curves.fastOutSlowIn,
+                    sizeCurve: Curves.fastOutSlowIn,
+                  ),
+                ],
+              ).marginOnly(bottom: 10),
+            ).marginOnly(left: _kCardLeftMargin, top: 15),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 // ignore: non_constant_identifier_names

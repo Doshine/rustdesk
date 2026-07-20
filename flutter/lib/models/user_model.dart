@@ -201,6 +201,80 @@ class UserModel {
     return getLoginResponseFromAuthBody(body);
   }
 
+  /// Send SMS login code to [phone].
+  /// throw [RequestException]
+  Future<bool> sendSmsCode(String phone) async {
+    final url = await bind.mainGetApiServer();
+    final resp = await http.post(Uri.parse('$url/api/sms-code'),
+        body: jsonEncode({
+          'phone': phone,
+          'captcha': '',
+          'captcha_id': '',
+        }));
+
+    final Map<String, dynamic> body;
+    try {
+      body = jsonDecode(decode_http_response(resp));
+    } catch (e) {
+      debugPrint("sendSmsCode: jsonDecode resp body failed: ${e.toString()}");
+      if (resp.statusCode != 200) {
+        BotToast.showText(
+            contentColor: Colors.red, text: 'HTTP ${resp.statusCode}');
+      }
+      rethrow;
+    }
+    if (resp.statusCode != 200) {
+      throw RequestException(resp.statusCode, body['error'] ?? '');
+    }
+    if (body['error'] != null) {
+      throw RequestException(0, body['error']);
+    }
+    if (body['code'] != 0) {
+      throw RequestException(0, body['message'] ?? '');
+    }
+    return true;
+  }
+
+  /// Login with [phone] and SMS [code].
+  /// throw [RequestException]
+  Future<LoginResponse> loginSms(String phone, String code) async {
+    final url = await bind.mainGetApiServer();
+    Map<String, dynamic> deviceInfo = {};
+    try {
+      deviceInfo = jsonDecode(bind.mainGetLoginDeviceInfo());
+    } catch (e) {
+      debugPrint('Failed to decode get device info: $e');
+    }
+    final resp = await http.post(Uri.parse('$url/api/login-sms'),
+        body: jsonEncode({
+          'phone': phone,
+          'code': code,
+          'id': await bind.mainGetMyId(),
+          'uuid': await bind.mainGetUuid(),
+          'deviceInfo': deviceInfo,
+        }));
+
+    final Map<String, dynamic> body;
+    try {
+      body = jsonDecode(decode_http_response(resp));
+    } catch (e) {
+      debugPrint("loginSms: jsonDecode resp body failed: ${e.toString()}");
+      if (resp.statusCode != 200) {
+        BotToast.showText(
+            contentColor: Colors.red, text: 'HTTP ${resp.statusCode}');
+      }
+      rethrow;
+    }
+    if (resp.statusCode != 200) {
+      throw RequestException(resp.statusCode, body['error'] ?? '');
+    }
+    if (body['error'] != null) {
+      throw RequestException(0, body['error']);
+    }
+
+    return getLoginResponseFromAuthBody(body);
+  }
+
   LoginResponse getLoginResponseFromAuthBody(Map<String, dynamic> body) {
     final LoginResponse loginResponse;
     try {
