@@ -138,7 +138,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
             child: Container(
                 alignment: AlignmentDirectional.center,
                 width: double.infinity,
-                color: Colors.pinkAccent,
+                color: MyTheme.warning,
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 child: Text(translate('Download new version'),
                     style: const TextStyle(
@@ -155,7 +155,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
         child: Ink(
           decoration: BoxDecoration(
             color: Theme.of(context).cardColor,
-            borderRadius: BorderRadius.all(Radius.circular(13)),
+            borderRadius: BorderRadius.all(Radius.circular(12)),
           ),
           child: Row(
             children: <Widget>[
@@ -283,7 +283,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
                               decoration: BoxDecoration(
                                 boxShadow: [
                                   BoxShadow(
-                                    color: Colors.black.withOpacity(0.3),
+                                    color: Colors.black.withOpacity(0.24),
                                     blurRadius: 5,
                                     spreadRadius: 1,
                                   ),

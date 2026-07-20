@@ -140,8 +140,7 @@ class HomePageState extends State<HomePage> {
                       width: 10,
                       height: 10,
                       decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Color.fromARGB(255, 133, 246, 199)),
+                          shape: BoxShape.circle, color: MyTheme.success),
                     ).marginSymmetric(horizontal: 2),
                 ],
               ),
@@ -166,7 +165,7 @@ class WebHomePage extends StatelessWidget {
       // backgroundColor: MyTheme.grayBg,
       appBar: AppBar(
         centerTitle: true,
-        title: Text("${bind.mainGetAppNameSync()} (Preview)"),
+        title: Text(bind.mainGetAppNameSync()),
         actions: connectionPage.appBarActions,
       ),
       body: connectionPage,

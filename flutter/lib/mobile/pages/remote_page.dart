@@ -842,11 +842,10 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
               'End voice call',
               SvgPicture.asset(
                 'assets/call_wait.svg',
-                colorFilter:
-                    ColorFilter.mode(Colors.redAccent, BlendMode.srcIn),
+                colorFilter: ColorFilter.mode(MyTheme.danger, BlendMode.srcIn),
               ),
               onPressEndVoiceCall,
-              labelStyle: TextStyle(color: Colors.redAccent))
+              labelStyle: TextStyle(color: MyTheme.danger))
           : makeTextMenu(
               'Voice call',
               SvgPicture.asset(
