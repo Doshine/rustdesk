@@ -1080,7 +1080,9 @@ fn get_api_server_(api: String, custom: String) -> String {
             return format!("http://{}", s);
         }
     }
-    "https://admin.rustdesk.com".to_owned()
+    // Doshine fork: self-hosted API server (Rainbond gateway). Placeholder domain —
+    // replace with the production domain before release (see docs/IMPLEMENTATION-PLAN.md §3).
+    "https://api.remotedesk.example.com".to_owned()
 }
 
 #[inline]
