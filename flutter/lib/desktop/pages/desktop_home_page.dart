@@ -131,7 +131,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     return ChangeNotifierProvider.value(
       value: gFFI.serverModel,
       child: Container(
-        width: isIncomingOnly ? 280.0 : 200.0,
+        width: isIncomingOnly ? 280.0 : 220.0,
         color: Theme.of(context).colorScheme.background,
         child: Stack(
           children: [
@@ -191,14 +191,17 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final model = gFFI.serverModel;
     return Container(
       margin: const EdgeInsets.only(left: 20, right: 11),
-      height: 57,
+      height: 80,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.baseline,
         textBaseline: TextBaseline.alphabetic,
         children: [
           Container(
-            width: 2,
-            decoration: const BoxDecoration(color: MyTheme.accent),
+            width: 3,
+            decoration: const BoxDecoration(
+              color: MyTheme.accent,
+              borderRadius: BorderRadius.all(Radius.circular(1.5)),
+            ),
           ).marginOnly(top: 5),
           Expanded(
             child: Padding(
@@ -241,7 +244,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                           contentPadding: EdgeInsets.only(top: 10, bottom: 10),
                         ),
                         style: TextStyle(
-                          fontSize: 22,
+                          fontFamily: 'WorkSans',
+                          fontSize: 28,
                         ),
                       ).workaroundFreezeLinuxMint(),
                     ),
@@ -303,9 +307,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         textBaseline: TextBaseline.alphabetic,
         children: [
           Container(
-            width: 2,
+            width: 3,
             height: 52,
-            decoration: BoxDecoration(color: MyTheme.accent),
+            decoration: BoxDecoration(
+              color: MyTheme.accent,
+              borderRadius: BorderRadius.circular(1.5),
+            ),
           ),
           Expanded(
             child: Padding(
@@ -338,7 +345,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                               contentPadding:
                                   EdgeInsets.only(top: 14, bottom: 10),
                             ),
-                            style: TextStyle(fontSize: 15),
+                            style: TextStyle(fontSize: 24),
                           ).workaroundFreezeLinuxMint(),
                         ),
                       ),
@@ -353,7 +360,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                   Icons.refresh,
                                   color: refreshHover.value
                                       ? textColor
-                                      : Color(0xFFDDDDDD),
+                                      : textColor?.withOpacity(0.5),
                                   size: 22,
                                 ))),
                           ),
@@ -368,7 +375,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                 Icons.edit,
                                 color: editHover.value
                                     ? textColor
-                                    : Color(0xFFDDDDDD),
+                                    : textColor?.withOpacity(0.5),
                                 size: 22,
                               ).marginOnly(right: 8, top: 4),
                             ),
@@ -607,11 +614,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           child: Container(
               decoration: BoxDecoration(
                   gradient: LinearGradient(
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
+                // tokens: brand.gradient 135deg #2F80FF → #00C2FF
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
                 colors: [
-                  Color.fromARGB(255, 226, 66, 188),
-                  Color.fromARGB(255, 244, 114, 124),
+                  MyTheme.accent,
+                  MyTheme.idColor,
                 ],
               )),
               padding: EdgeInsets.all(20),
@@ -1067,13 +1075,12 @@ void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
                         label: Text(
                           e.name,
                           style: TextStyle(
-                              color: checked
-                                  ? const Color(0xFF0A9471)
-                                  : Color.fromARGB(255, 198, 86, 157)),
+                              color:
+                                  checked ? MyTheme.success : MyTheme.warning),
                         ),
                         backgroundColor: checked
-                            ? const Color(0xFFD0F7ED)
-                            : Color.fromARGB(255, 247, 205, 232));
+                            ? MyTheme.success.withOpacity(0.12)
+                            : MyTheme.warning.withOpacity(0.12));
                   }).toList(),
                 ))
           ],

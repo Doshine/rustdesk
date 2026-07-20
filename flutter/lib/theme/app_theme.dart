@@ -21,6 +21,11 @@ class MyTheme {
   static const Color button = Color(0xFF2F80FF);
   static const Color hoverBorder = Color(0xFF999999);
 
+  // tokens: color.semantic / color.quality
+  static const Color success = Color(0xFF22C55E);
+  static const Color warning = Color(0xFFF59E0B);
+  static const Color danger = Color(0xFFEF4444);
+
   // ListTile
   static const ListTileThemeData listTileTheme = ListTileThemeData(
     shape: RoundedRectangleBorder(
@@ -336,7 +341,8 @@ class MyTheme {
     listTileTheme: listTileTheme,
     menuBarTheme: MenuBarThemeData(
         style: MenuStyle(
-            backgroundColor: MaterialStatePropertyAll(Color(0xFF121212)))),
+            // tokens: neutral.dark.surface —— 悬浮工具栏/菜单底色与卡片统一
+            backgroundColor: MaterialStatePropertyAll(Color(0xFF1A2130)))),
     colorScheme: ColorScheme.dark(
       primary: Colors.blue,
       secondary: accent,

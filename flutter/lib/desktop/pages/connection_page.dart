@@ -121,8 +121,8 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
                         stateGlobal.svcStatus.value == SvcStatus.connecting
                     ? kColorWarn
                     : (stateGlobal.svcStatus.value == SvcStatus.ready
-                        ? Color.fromARGB(255, 50, 190, 166)
-                        : Color.fromARGB(255, 224, 79, 95)),
+                        ? MyTheme.success
+                        : MyTheme.danger),
               ),
             ).marginSymmetric(horizontal: em),
             Container(
@@ -345,8 +345,9 @@ class _ConnectionPageState extends State<ConnectionPage>
       width: 320 + 20 * 2,
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
       decoration: BoxDecoration(
-          borderRadius: const BorderRadius.all(Radius.circular(13)),
-          border: Border.all(color: Theme.of(context).colorScheme.background)),
+          borderRadius:
+              const BorderRadius.all(Radius.circular(12)), // tokens: radius.lg
+          border: Border.all(color: MyTheme.color(context).border!)),
       child: Ink(
         child: Column(
           children: [
@@ -469,7 +470,8 @@ class _ConnectionPageState extends State<ConnectionPage>
                           decoration: BoxDecoration(
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.3),
+                                // tokens: shadow.md 深色近似
+                                color: Colors.black.withOpacity(0.24),
                                 blurRadius: 5,
                                 spreadRadius: 1,
                               ),

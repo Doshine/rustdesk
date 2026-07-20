@@ -104,6 +104,8 @@ class _PeerCardState extends State<_PeerCard>
     return MouseRegion(
       onEnter: (evt) {
         deco.value = BoxDecoration(
+          // tokens: brand.primarySubtle
+          color: MyTheme.accent.withOpacity(0.08),
           border: Border.all(
               color: Theme.of(context).colorScheme.primary,
               width: _borderWidth),
@@ -788,14 +790,14 @@ abstract class BasePeerCard extends StatelessWidget {
         children: [
           Text(
             translate('Delete'),
-            style: style?.copyWith(color: Colors.red),
+            style: style?.copyWith(color: MyTheme.danger),
           ),
           Expanded(
               child: Align(
             alignment: Alignment.centerRight,
             child: Transform.scale(
               scale: 0.8,
-              child: Icon(Icons.delete_forever, color: Colors.red),
+              child: Icon(Icons.delete_forever, color: MyTheme.danger),
             ),
           ).marginOnly(right: 4)),
         ],
@@ -852,7 +854,7 @@ abstract class BasePeerCard extends StatelessWidget {
         } else {
           if (tab.index == PeerTabIndex.ab.index) {
             BotToast.showText(
-                contentColor: Colors.red, text: translate("Failed"));
+                contentColor: MyTheme.danger, text: translate("Failed"));
           }
         }
       },
@@ -1471,7 +1473,8 @@ Widget getOnline(double rightPadding, bool online) {
       child: Padding(
           padding: EdgeInsets.fromLTRB(0, 4, rightPadding, 4),
           child: CircleAvatar(
-              radius: 3, backgroundColor: online ? Colors.green : kColorWarn)));
+              radius: 3,
+              backgroundColor: online ? MyTheme.success : MyTheme.warning)));
 }
 
 Widget build_more(BuildContext context, {bool invert = false}) {

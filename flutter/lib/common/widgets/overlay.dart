@@ -562,6 +562,21 @@ class QualityMonitor extends StatelessWidget {
   final QualityMonitorModel qualityMonitorModel;
   QualityMonitor(this.qualityMonitorModel);
 
+  // Delay color tiers from design tokens (quality.*): <50ms good,
+  // <120ms fair, otherwise poor; neutral.dark.textTertiary when no data.
+  static Color _delayColor(String? delay, String? fps) {
+    const noDataColor = Color(0xFF6B7280);
+    if (delay == null) return noDataColor;
+    // keep consistent with the displayed value below: 0 when fps is empty/0
+    final noFrames =
+        (fps ?? '').replaceAll(' ', '').replaceAll('0', '').isEmpty;
+    final ms = noFrames ? 0 : int.tryParse(delay);
+    if (ms == null) return noDataColor;
+    if (ms < 50) return const Color(0xFF22C55E);
+    if (ms < 120) return const Color(0xFFF59E0B);
+    return const Color(0xFFEF4444);
+  }
+
   Widget _row(String info, String? value, {Color? rightColor}) {
     return Row(
       children: [
@@ -600,7 +615,8 @@ class QualityMonitor extends StatelessWidget {
                       _row(
                           "Delay",
                           "${qualityMonitorModel.data.delay == null ? '-' : (qualityMonitorModel.data.fps ?? "").replaceAll(' ', '').replaceAll('0', '').isEmpty ? 0 : qualityMonitorModel.data.delay}ms",
-                          rightColor: Colors.green),
+                          rightColor: _delayColor(qualityMonitorModel.data.delay,
+                              qualityMonitorModel.data.fps)),
                       _row("Target Bitrate",
                           "${qualityMonitorModel.data.targetBitrate ?? '-'}kb"),
                       _row(

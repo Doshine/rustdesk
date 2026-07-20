@@ -329,11 +329,13 @@ class ToolbarState {
 class _ToolbarTheme {
   static const Color blueColor = MyTheme.button;
   static const Color hoverBlueColor = MyTheme.accent;
-  static Color inactiveColor = Colors.grey[800]!;
-  static Color hoverInactiveColor = Colors.grey[850]!;
+  // tokens neutral.dark.surfaceHover / neutral.dark.surface
+  // (hover stays darker, same relation as the old grey[800] -> grey[850])
+  static Color inactiveColor = const Color(0xFF242D40);
+  static Color hoverInactiveColor = const Color(0xFF1A2130);
 
-  static const Color redColor = Colors.redAccent;
-  static const Color hoverRedColor = Colors.red;
+  static const Color redColor = Color(0xFFEF4444); // tokens semantic.danger
+  static const Color hoverRedColor = Color(0xFFDC2626); // danger, one step deeper
   // kMinInteractiveDimension
   static const double height = 20.0;
   static const double dividerHeight = 12.0;
@@ -346,7 +348,7 @@ class _ToolbarTheme {
 
   static double dividerSpaceToAction = isWindows ? 8 : 14;
 
-  static double menuBorderRadius = isWindows ? 5.0 : 7.0;
+  static const double menuBorderRadius = 8.0; // tokens radius.md
   static EdgeInsets menuPadding = isWindows
       ? EdgeInsets.fromLTRB(4, 12, 4, 12)
       : EdgeInsets.fromLTRB(6, 14, 6, 14);
@@ -805,6 +807,7 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
   Widget _buildToolbar(
       BuildContext context, _ToolbarEdge edge, bool isHorizontal) {
     final List<Widget> toolbarItems = [];
+    toolbarItems.add(_QualityDot(ffi: widget.ffi, isHorizontal: isHorizontal));
     toolbarItems.add(_PinMenu(state: widget.state));
     toolbarItems.add(Obx(() {
       final privacyModeState = PrivacyModeState.find(widget.id);
@@ -930,6 +933,76 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
       ).copyWith(
               backgroundColor:
                   Theme.of(context).menuBarTheme.style?.backgroundColor)),
+    );
+  }
+}
+
+class _QualityDot extends StatelessWidget {
+  final FFI ffi;
+  final bool isHorizontal;
+  const _QualityDot({Key? key, required this.ffi, required this.isHorizontal})
+      : super(key: key);
+
+  // Delay tiers from design tokens quality.*; neutral.dark.textTertiary
+  // when there is no data yet.
+  static const Color _goodColor = Color(0xFF22C55E);
+  static const Color _fairColor = Color(0xFFF59E0B);
+  static const Color _poorColor = Color(0xFFEF4444);
+  static const Color _noDataColor = Color(0xFF6B7280);
+
+  static Color delayColor(int? delayMs) {
+    if (delayMs == null) return _noDataColor;
+    if (delayMs < 50) return _goodColor;
+    if (delayMs < 120) return _fairColor;
+    return _poorColor;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: ffi.qualityMonitorModel,
+      builder: (context, _) {
+        final raw = ffi.qualityMonitorModel.data.delay;
+        final delayMs =
+            raw == null ? null : (int.tryParse(raw) ?? double.tryParse(raw)?.round());
+        final dot = Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            color: delayColor(delayMs),
+            shape: BoxShape.circle,
+          ),
+        );
+        final label = delayMs == null
+            ? null
+            : Text(
+                '${delayMs}ms',
+                style: const TextStyle(
+                  // tokens neutral.dark.textSecondary
+                  color: Color(0xFF9AA4B2),
+                  fontSize: 10,
+                  height: 1,
+                ),
+              );
+        final children = [
+          dot,
+          if (label != null) ...[
+            SizedBox(width: isHorizontal ? 4 : 0, height: isHorizontal ? 0 : 2),
+            label,
+          ],
+        ];
+        return Container(
+          width: isHorizontal ? null : _ToolbarTheme.buttonSize,
+          height: isHorizontal ? _ToolbarTheme.buttonSize : null,
+          alignment: Alignment.center,
+          margin: EdgeInsets.symmetric(
+              horizontal: _ToolbarTheme.buttonHMargin,
+              vertical: _ToolbarTheme.buttonVMargin),
+          child: isHorizontal
+              ? Row(mainAxisSize: MainAxisSize.min, children: children)
+              : Column(mainAxisSize: MainAxisSize.min, children: children),
+        );
+      },
     );
   }
 }
@@ -1243,7 +1316,8 @@ class _MonitorMenu extends StatelessWidget {
           child: Container(
             decoration: BoxDecoration(
               border: Border.all(
-                color: Colors.grey,
+                // tokens neutral.light.textTertiary
+                color: const Color(0xFF9AA0A6),
                 width: 1.0,
               ),
               color: display.value == i ? activeBgColor : Colors.white,
@@ -1959,7 +2033,8 @@ class _RectValueThumbShape extends SliderComponentShape {
     );
     final Color? evaluatedColor = colorTween.evaluate(enableAnimation);
     final Color? thumbColor = sliderTheme.thumbColor;
-    final Color fillColor = evaluatedColor ?? thumbColor ?? Colors.blueAccent;
+    final Color fillColor =
+        evaluatedColor ?? thumbColor ?? const Color(0xFF2F80FF); // tokens brand.primary
 
     final RRect rrect = RRect.fromRectAndRadius(
       Rect.fromCenter(center: center, width: width, height: height),
