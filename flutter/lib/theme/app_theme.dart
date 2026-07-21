@@ -4,27 +4,30 @@ import 'package:get/get.dart';
 import '../common.dart';
 import '../consts.dart';
 import '../models/platform_model.dart';
+import 'yinhe_tokens.dart';
+
+export 'yinhe_tokens.dart';
 
 class MyTheme {
   MyTheme._();
 
   static const Color grayBg = Color(0xFFEFEFF2);
-  static const Color accent = Color(0xFF2F80FF);
+  static const Color accent = YinheColors.blue500;
   static const Color accent50 = Color(0x772F80FF);
   static const Color accent80 = Color(0xAA2F80FF);
   static const Color canvasColor = Color(0xFF212121);
   static const Color border = Color(0xFFCCCCCC);
-  static const Color idColor = Color(0xFF00C2FF);
+  static const Color idColor = YinheColors.cyan500;
   static const Color darkGray = Color.fromARGB(255, 148, 148, 148);
   static const Color cmIdColor = Color(0xFF21790B);
   static const Color dark = Colors.black87;
-  static const Color button = Color(0xFF2F80FF);
+  static const Color button = YinheColors.blue500;
   static const Color hoverBorder = Color(0xFF999999);
 
-  // tokens: color.semantic / color.quality
-  static const Color success = Color(0xFF22C55E);
-  static const Color warning = Color(0xFFF59E0B);
-  static const Color danger = Color(0xFFEF4444);
+  // tokens: color.semantic / color.quality（v2.1，废弃 v1 Tailwind 值）
+  static const Color success = YinheColors.successLight;
+  static const Color warning = YinheColors.warningLight;
+  static const Color danger = YinheColors.dangerLight;
 
   // ListTile
   static const ListTileThemeData listTileTheme = ListTileThemeData(
@@ -226,7 +229,7 @@ class MyTheme {
         style:
             MenuStyle(backgroundColor: MaterialStatePropertyAll(Colors.white))),
     colorScheme: ColorScheme.light(
-        primary: Colors.blue, secondary: accent, background: grayBg),
+        primary: YinheColors.blue500, secondary: accent, background: grayBg),
     popupMenuTheme: PopupMenuThemeData(
         color: Colors.white,
         shape: RoundedRectangleBorder(
@@ -247,7 +250,7 @@ class MyTheme {
     brightness: Brightness.dark,
     hoverColor: Color.fromARGB(255, 45, 46, 53),
     scaffoldBackgroundColor: Color(0xFF0F1420),
-    dialogBackgroundColor: Color(0xFF1A2130),
+    dialogBackgroundColor: YinheColors.surfaceDark,
     appBarTheme: AppBarTheme(
       shadowColor: Colors.transparent,
     ),
@@ -264,7 +267,7 @@ class MyTheme {
     scrollbarTheme: scrollbarThemeDark,
     inputDecorationTheme: (isDesktop || isWebDesktop)
         ? InputDecorationTheme(
-            fillColor: Color(0xFF1A2130),
+            fillColor: YinheColors.surfaceDark,
             filled: true,
             isDense: true,
             border: OutlineInputBorder(
@@ -283,7 +286,7 @@ class MyTheme {
         color: accent80,
       ),
     ),
-    cardColor: Color(0xFF1A2130),
+    cardColor: YinheColors.surfaceDark,
     visualDensity: VisualDensity.adaptivePlatformDensity,
     tabBarTheme: const TabBarTheme(
       labelColor: Colors.white70,
@@ -326,7 +329,7 @@ class MyTheme {
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        backgroundColor: Color(0xFF1A2130),
+        backgroundColor: YinheColors.surfaceDark,
         side: BorderSide(color: Colors.white12, width: 0.5),
         disabledForegroundColor: Colors.white70,
         foregroundColor: Colors.white70,
@@ -342,9 +345,9 @@ class MyTheme {
     menuBarTheme: MenuBarThemeData(
         style: MenuStyle(
             // tokens: neutral.dark.surface —— 悬浮工具栏/菜单底色与卡片统一
-            backgroundColor: MaterialStatePropertyAll(Color(0xFF1A2130)))),
+            backgroundColor: MaterialStatePropertyAll(YinheColors.surfaceDark))),
     colorScheme: ColorScheme.dark(
-      primary: Colors.blue,
+      primary: YinheColors.blue400,
       secondary: accent,
       background: Color(0xFF0F1420),
     ),

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:auto_size_text_field/auto_size_text_field.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common/formatter/id_formatter.dart';
 import 'package:flutter_hbb/common/widgets/connection_page_title.dart';
 import 'package:flutter_hbb/models/state_model.dart';
@@ -17,6 +18,7 @@ import '../../consts.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import 'home_page.dart';
+import 'scan_page.dart';
 
 /// Connection page for connecting to a remote peer.
 class ConnectionPage extends StatefulWidget implements PageShape {
@@ -150,20 +152,22 @@ class _ConnectionPageState extends State<ConnectionPage> {
   /// UI for the remote ID TextField.
   /// Search for a peer and connect to it if the id exists.
   Widget _buildRemoteIDTextField() {
+    // 蓝鲸银河 v2.1 §2.2.A / WS2-4：连接卡圆角 16、内边距 20、输入高 56px，
+    // 数字键盘优先，支持粘贴（非法字符过滤）与扫码。
     final w = SizedBox(
-      height: 84,
+      height: 72,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 2),
+        padding: const EdgeInsets.symmetric(vertical: 8),
         child: Ink(
           decoration: BoxDecoration(
             color: Theme.of(context).cardColor,
-            borderRadius: BorderRadius.all(Radius.circular(12)),
+            borderRadius: BorderRadius.all(Radius.circular(16)),
           ),
           child: Row(
             children: <Widget>[
               Expanded(
                 child: Container(
-                  padding: const EdgeInsets.only(left: 16, right: 16),
+                  padding: const EdgeInsets.only(left: 20, right: 8),
                   child: RawAutocomplete<Peer>(
                     optionsBuilder: (TextEditingValue textEditingValue) {
                       if (textEditingValue.text == '') {
@@ -227,8 +231,9 @@ class _ConnectionPageState extends State<ConnectionPage> {
                         minFontSize: 18,
                         autocorrect: false,
                         enableSuggestions: false,
-                        keyboardType: TextInputType.visiblePassword,
-                        // keyboardType: TextInputType.number,
+                        // 蓝鲸银河 WS2-4：恢复数字键盘（ID 为纯数字规则，
+                        // 粘贴的非法字符由 _IdCharFilterFormatter 过滤）
+                        keyboardType: TextInputType.number,
                         onChanged: (String text) {
                           _idController.id = text;
                         },
@@ -237,6 +242,8 @@ class _ConnectionPageState extends State<ConnectionPage> {
                           fontWeight: FontWeight.bold,
                           fontSize: 30,
                           color: MyTheme.idColor,
+                          // 等宽数字（tabular figures）
+                          fontFeatures: [FontFeature('tnum')],
                         ),
                         decoration: InputDecoration(
                           labelText: translate('Remote ID'),
@@ -254,7 +261,10 @@ class _ConnectionPageState extends State<ConnectionPage> {
                             color: MyTheme.darkGray,
                           ),
                         ),
-                        inputFormatters: [IDTextInputFormatter()],
+                        inputFormatters: [
+                          _IdCharFilterFormatter(),
+                          IDTextInputFormatter()
+                        ],
                         onSubmitted: (_) {
                           onConnect();
                         },
@@ -329,6 +339,8 @@ class _ConnectionPageState extends State<ConnectionPage> {
               Obx(() => Offstage(
                     offstage: _idEmpty.value,
                     child: IconButton(
+                        constraints:
+                            const BoxConstraints(minWidth: 48, minHeight: 48),
                         onPressed: () {
                           setState(() {
                             _idController.clear();
@@ -336,29 +348,58 @@ class _ConnectionPageState extends State<ConnectionPage> {
                         },
                         icon: Icon(Icons.clear, color: MyTheme.darkGray)),
                   )),
-              SizedBox(
-                width: 60,
-                height: 60,
-                child: IconButton(
-                  icon: const Icon(Icons.arrow_forward,
-                      color: MyTheme.darkGray, size: 45),
-                  onPressed: onConnect,
+              // 蓝鲸银河 WS2-4：扫码入口（调起项目已有 ScanPage 路由）
+              if (!isWeb)
+                IconButton(
+                  tooltip: translate('Scan'),
+                  constraints:
+                      const BoxConstraints(minWidth: 48, minHeight: 48),
+                  icon: const Icon(Icons.qr_code_scanner,
+                      color: MyTheme.darkGray),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (BuildContext context) => ScanPage(),
+                      ),
+                    );
+                  },
                 ),
-              ),
             ],
           ),
         ),
+      ),
+    );
+    // 蓝鲸银河 WS2-3：连接主操作改 56px 高品牌主 CTA（替代裸箭头 IconButton）
+    final connectButton = SizedBox(
+      width: double.infinity,
+      height: 56,
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: MyTheme.button,
+          foregroundColor: Colors.white,
+          textStyle: const TextStyle(
+              fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: 0.5),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12)),
+        ),
+        onPressed: onConnect,
+        child: Text(translate('Connect')),
       ),
     );
     final child = Column(children: [
       if (isWebDesktop)
         getConnectionPageTitle(context, true)
             .marginOnly(bottom: 10, top: 15, left: 12),
-      w
+      w,
+      const SizedBox(height: 12),
+      connectButton,
     ]);
+    // 连接卡左右边距 10 + 6 = 16（规范 v2.1 §2.2.A）
     return Align(
         alignment: Alignment.topCenter,
-        child: Container(constraints: kMobilePageConstraints, child: child));
+        child: Container(constraints: kMobilePageConstraints, child: child)
+            .marginSymmetric(horizontal: 6));
   }
 
   @override
@@ -379,5 +420,26 @@ class _ConnectionPageState extends State<ConnectionPage> {
       Get.delete<FocusNode>();
     }
     super.dispose();
+  }
+}
+
+/// 蓝鲸银河 WS2-4：ID 合法字符过滤器（数字、空格及中继后缀记号 \r / /r）。
+/// 数字键盘下主要用于拦截粘贴进来的非法字符；
+/// 后续的分组格式化仍由 [IDTextInputFormatter] 完成。
+class _IdCharFilterFormatter extends TextInputFormatter {
+  static final RegExp _illegal = RegExp(r'[^0-9 rR/\\]');
+
+  @override
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
+    final filtered = newValue.text.replaceAll(_illegal, '');
+    if (filtered.length == newValue.text.length) {
+      return newValue;
+    }
+    return TextEditingValue(
+      text: filtered,
+      selection: TextSelection.collapsed(offset: filtered.length),
+      composing: TextRange.empty,
+    );
   }
 }

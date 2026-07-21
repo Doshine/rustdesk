@@ -297,6 +297,43 @@ class ServerModel with ChangeNotifier {
     }
   }
 
+  // ---- 蓝鲸银河 P3-6 · 一次性协助码（Helpdesk 双轨）----
+  // 说明（任务书允许的必要小改）：一次性协助码的分段展示与「复制邀请」组合
+  // 文本同时被桌面 CM 空态「远程协助」面板与移动端 ServerInfo 协助码卡复用，
+  // 集中放在模型层，避免两端页面各自重复实现。
+
+  /// 一次性协助码分段显示（数字脸分组规则，与 ID 的 3 位分组一致）：
+  /// 每 3 位一组；剩余 4 位时按 2+2 收尾，避免末组出现孤立 1 位。
+  /// 6 位 → `842 193`，8 位 → `842 193 60`，10 位 → `842 193 60 71`。
+  /// 非纯字母数字内容（如 "Generating ..." 占位、`-`）原样返回，不做分段。
+  String formatHelpdeskCode(String raw) {
+    final code = raw.replaceAll(' ', '');
+    if (code.length <= 3 || !RegExp(r'^[a-zA-Z0-9]+$').hasMatch(code)) {
+      return raw;
+    }
+    final groups = <String>[];
+    var rest = code;
+    while (rest.length > 3) {
+      final take = rest.length == 4 ? 2 : 3;
+      groups.add(rest.substring(0, take));
+      rest = rest.substring(take);
+    }
+    groups.add(rest);
+    return groups.join(' ');
+  }
+
+  /// 「复制邀请」组合文本（供 IM 发送）：ID + 一次性协助码 + 失效说明。
+  /// 邀请载荷中的协助码使用未分段原始码，便于对端直接粘贴输入；
+  /// ID 保留标准 3 位分段（主控端 ID 输入框会自动忽略空格）。
+  String buildHelpdeskInvite() {
+    final id = serverId.text.trim();
+    final code = serverPasswd.text.trim();
+    return '蓝鲸银河 · ${translate('远程协助')}\n'
+        '${translate('ID')}: $id\n'
+        '${translate('一次性协助码')}: $code\n'
+        '${translate('此码在对方连接一次后自动失效')}';
+  }
+
   toggleAudio() async {
     if (clients.any((c) => !c.disconnected)) {
       await showClientsMayNotBeChangedAlert(parent.target);

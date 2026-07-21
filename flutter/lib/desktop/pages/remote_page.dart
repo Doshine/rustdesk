@@ -177,6 +177,10 @@ class _RemotePageState extends State<RemotePage>
     // }
 
     _blockableOverlayState.applyFfi(_ffi);
+    // 键盘捕获模式（规范 v2.1 §2.1.B）：回填持久化状态并注册全局按键
+    // 处理器；捕获关闭时吞掉 Esc（不转发远端，也不触发本地行为）。
+    KeyboardCaptureMode.ensureLoaded(widget.id, sessionId);
+    HardwareKeyboard.instance.addHandler(_keyboardCaptureKeyHandler);
     // Call onSelected in post frame callback, since we cannot guarantee that the callback will not call setState.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       widget.tabController?.onSelected?.call(widget.id);
@@ -194,6 +198,18 @@ class _RemotePageState extends State<RemotePage>
     if (_ffi.ffiModel.pi.isSet.value) {
       unawaited(_normalizeWaylandKeyboardModeIfNeeded());
     }
+  }
+
+  /// 键盘捕获门控（规范 v2.1 §2.1.B）：
+  /// 捕获开启（默认）= 全键透传；关闭时 Esc 被吞掉——不转发远端，
+  /// 也不触发本地行为。系统级组合键（Alt+Tab 等）本就不经 Flutter 通道，
+  /// 无需处理。返回 false 表示不消费，按键继续走 inputModel 转发链路。
+  bool _keyboardCaptureKeyHandler(KeyEvent event) {
+    if (KeyboardCaptureMode.captureEnabled(widget.id)) return false;
+    if (event.logicalKey == LogicalKeyboardKey.escape) {
+      return true;
+    }
+    return false;
   }
 
   Future<void> _normalizeWaylandKeyboardModeIfNeeded() async {
@@ -377,6 +393,8 @@ class _RemotePageState extends State<RemotePage>
       _ffi.inputModel.enterOrLeave(false);
     }
     DesktopMultiWindow.removeListener(this);
+    HardwareKeyboard.instance.removeHandler(_keyboardCaptureKeyHandler);
+    KeyboardCaptureMode.remove(widget.id);
     _ffi.dialogManager.hideMobileActionsOverlay();
     _ffi.imageModel.disposeImage();
     _ffi.cursorModel.disposeImages();

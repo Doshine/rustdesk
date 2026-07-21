@@ -152,12 +152,10 @@ class ChatModel with ChangeNotifier {
     if (chatIconOverlayEntry != null) {
       chatIconOverlayEntry!.remove();
     }
-    // mobile check navigationBar
-    final bar = navigationBarKey.currentWidget;
-    if (bar != null) {
-      if ((bar as BottomNavigationBar).currentIndex == 1) {
-        return;
-      }
+    // mobile: 底部导航已收敛为「连接/设备/设置」三项（WS2-1），
+    // 聊天页改为深链，可见性统一由 HomePage.isChatPageCurrentTab 判断。
+    if (HomePage.homeKey.currentState?.isChatPageCurrentTab == true) {
+      return;
     }
 
     final overlayState = _blockableOverlayState.state;

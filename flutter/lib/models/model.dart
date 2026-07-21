@@ -139,12 +139,19 @@ class FfiModel with ChangeNotifier {
   bool isRefreshing = false;
 
   /// Active stage index of the desktop connecting stage card
-  /// (ConnectingStageCard.stageLabels, presentation only).
-  /// 0: connecting to the server; 1/2: hole-punch/relay negotiation and
-  /// secure channel setup (no separate UI events exist for these on the Rust
-  /// side, they complete together with stage 0 when `connection_ready`
-  /// arrives); 3: waiting for the first image.
+  /// (ConnectingStageCard.stageLabels, presentation only). Stages follow the
+  /// real protocol order (蓝鲸银河 v2.1 §2.1.B):
+  /// 0 连接中继 / 1 安全协商 / 2 身份验证 / 3 建立画面.
+  /// No separate UI events exist for 1/2 on the Rust side; they complete
+  /// together with stage 0 when `connection_ready` arrives, which advances
+  /// the card straight to stage 3 (waiting for the first image).
   final connectionStage = 0.obs;
+
+  /// Presentation only: latest connect-phase failure for the desktop
+  /// connecting stage card failure tree (蓝鲸银河 v2.1 §2.1.B). Set by
+  /// [handleMsgBox] via [classifyConnectingFailure]; cleared on reconnect,
+  /// success and [clear]. Never changes connection logic.
+  final connectionFailure = Rx<ConnectingFailure?>(null);
 
   Timer? timerScreenshot;
 
@@ -272,6 +279,7 @@ class FfiModel with ChangeNotifier {
     waitForImageTimer?.cancel();
     timerScreenshot?.cancel();
     connectionStage.value = 0;
+    connectionFailure.value = null;
   }
 
   setConnectionType(
@@ -284,8 +292,10 @@ class FfiModel with ChangeNotifier {
     // Presentation only: `connection_ready` (or cached peer data) implies
     // server connect, hole-punch/relay negotiation and the encrypted channel
     // are all established (the event carries `direct` and `secure`), so the
-    // stage card advances straight to "waiting for image".
+    // stage card advances straight to "建立画面" (waiting for image) and any
+    // previous connect-phase failure state is resolved.
     connectionStage.value = 3;
+    connectionFailure.value = null;
     try {
       var connectionType = ConnectionTypeState.find(peerId);
       connectionType.setSecure(secure);
@@ -929,6 +939,19 @@ class FfiModel with ChangeNotifier {
       parent.target?.inputModel.setRelativeMouseMode(false);
     }
 
+    // Phase 2 P2-B (蓝鲸银河 v2.1 §2.1.B 失败树): feed connect-phase failures
+    // to the desktop connecting stage card. Presentation only — the existing
+    // error dialogs, auto-retry timers and retry paths below are unchanged;
+    // the card mirrors the failure (停留对应阶段 + 重试 + 诊断详情).
+    if ((isDesktop || isWebDesktop) &&
+        parent.target?.connType == ConnType.defaultConn) {
+      connectionFailure.value = classifyConnectingFailure(
+          type is String ? type : null,
+          title is String ? title : null,
+          text is String ? text : null,
+          connectionStage.value);
+    }
+
     if (type == 're-input-password') {
       wrongPasswordDialog(sessionId, dialogManager, type, title, text);
     } else if (type == 'input-2fa') {
@@ -1135,13 +1158,20 @@ class FfiModel with ChangeNotifier {
 
   /// Show the staged connecting card (desktop remote sessions only).
   /// Same behavior contract as `showLoading('Connecting...')`: the cancel
-  /// button dismisses all dialogs and closes the connection.
+  /// button dismisses all dialogs and closes the connection. Connect-phase
+  /// failures surface via [connectionFailure] (蓝鲸银河 v2.1 §2.1.B 失败树);
+  /// the card's 重试 uses the same path as existing error dialogs' Retry.
   void showConnectingStageCard(
       OverlayDialogManager dialogManager, SessionID sessionId) {
     connectionStage.value = 0;
+    connectionFailure.value = null;
     cancel() {
       dialogManager.dismissAll();
       closeConnection();
+    }
+
+    retry() {
+      reconnect(dialogManager, sessionId, false);
     }
 
     dialogManager.show(
@@ -1149,7 +1179,10 @@ class FfiModel with ChangeNotifier {
         title: null,
         content: ConnectingStageCard(
           stage: connectionStage,
+          failure: connectionFailure,
+          direct: () => direct,
           onCancel: cancel,
+          onRetry: retry,
         ),
         onCancel: cancel,
       ),
@@ -1220,6 +1253,7 @@ class FfiModel with ChangeNotifier {
 
     // Presentation only: this dialog is the "waiting for image" stage.
     connectionStage.value = 3;
+    connectionFailure.value = null;
     if (waitForFirstImage.isFalse) return;
     dialogManager.show(
       (setState, close, context) => CustomAlertDialog(

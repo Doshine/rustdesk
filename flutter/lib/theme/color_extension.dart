@@ -30,31 +30,31 @@ class ColorThemeExtension extends ThemeExtension<ColorThemeExtension> {
   final Color? divider;
 
   static final light = ColorThemeExtension(
-    border: Color(0xFFE5E7EB),
+    border: YinheColors.borderLight,
     border2: Color(0xFFBBBBBB),
     border3: Colors.black26,
-    highlight: Color(0xFFF0F2F5),
+    highlight: YinheColors.neutral100,
     drag_indicator: Colors.grey[800],
     shadow: Colors.black,
     errorBannerBg: Color(0xFFFDEEEB),
     me: Colors.green,
     toastBg: Colors.black.withOpacity(0.6),
     toastText: Colors.white,
-    divider: Color(0xFFEFF0F1),
+    divider: YinheColors.dividerLight,
   );
 
   static final dark = ColorThemeExtension(
-    border: Color(0xFF2A3346),
+    border: YinheColors.borderDark,
     border2: Color(0xFFE5E5E5),
     border3: Colors.white24,
-    highlight: Color(0xFF242D40),
+    highlight: YinheColors.surfaceRaisedDark,
     drag_indicator: Colors.grey,
     shadow: Colors.grey,
     errorBannerBg: Color(0xFF470F2D),
     me: Colors.greenAccent,
     toastBg: Colors.white.withOpacity(0.6),
     toastText: Colors.black,
-    divider: Color(0xFF232B3B),
+    divider: YinheColors.dividerDark,
   );
 
   @override

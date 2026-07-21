@@ -24,6 +24,7 @@ import '../../models/platform_model.dart';
 import '../../utils/image.dart';
 import '../widgets/dialog.dart';
 import '../widgets/custom_scale_widget.dart';
+import '../widgets/connecting_stage_card.dart';
 
 final initText = '1' * 1024;
 
@@ -102,8 +103,8 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: []);
-      gFFI.dialogManager
-          .showLoading(translate('Connecting...'), onCancel: closeConnection);
+      // 蓝鲸银河 P2-D：四阶段连接进度卡（替代通用 showLoading('Connecting...')）
+      _showConnectingStageCard();
     });
     WakelockManager.enable(_uniqueKey);
     _physicalFocusNode.requestFocus();
@@ -183,6 +184,32 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       trySyncClipboard();
     }
+  }
+
+  /// 蓝鲸银河 P2-D：四阶段连接进度卡。
+  /// 与 showLoading('Connecting...') 相同的行为契约：
+  /// 取消 = dismissAll + closeConnection；首帧到达由既有流程 dismissAll 关闭；
+  /// 连接错误由既有 msgBox 错误对话框承载（错误详情 + 重试）。
+  void _showConnectingStageCard() {
+    gFFI.ffiModel.connectionStage.value = 0;
+    cancel() {
+      gFFI.dialogManager.dismissAll();
+      closeConnection();
+    }
+
+    gFFI.dialogManager.show(
+      (setState, close, context) => CustomAlertDialog(
+        title: null,
+        content: MobileConnectingStageCard(
+          stage: gFFI.ffiModel.connectionStage,
+          peerId: widget.id,
+          sessionLabel: '$sessionId',
+          onCancel: cancel,
+        ),
+        onCancel: cancel,
+      ),
+      tag: '$sessionId-connecting',
+    );
   }
 
   // For client side
@@ -433,11 +460,18 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     });
   }
 
-  Widget _bottomWidget() => _showGestureHelp
-      ? getGestureHelp()
-      : (_showBar && gFFI.ffiModel.pi.displays.isNotEmpty
-          ? getBottomAppBar()
-          : Offstage());
+  Widget _bottomWidget() {
+    // 蓝鲸银河 P2-D：横屏时底部工具栏切换为右侧纵向布局（见 _sideToolBar），
+    // 底部仅保留连接等待 overlay
+    if (MediaQuery.of(context).orientation == Orientation.landscape) {
+      return const Offstage();
+    }
+    return _showGestureHelp
+        ? getGestureHelp()
+        : (_showBar && gFFI.ffiModel.pi.displays.isNotEmpty
+            ? getBottomAppBar()
+            : const Offstage());
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -515,14 +549,25 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
                                   gFFI.canvasModel.updateViewStyle();
                                 });
                               }
+                              // 蓝鲸银河 P2-D：横屏时工具栏切换为右侧纵向布局
+                              final canvasBody = inputModel.isPhysicalMouse.value
+                                  ? getBodyForMobile()
+                                  : RawTouchGestureDetectorRegion(
+                                      child: getBodyForMobile(),
+                                      ffi: gFFI,
+                                    );
                               return Container(
                                 color: MyTheme.canvasColor,
-                                child: inputModel.isPhysicalMouse.value
-                                    ? getBodyForMobile()
-                                    : RawTouchGestureDetectorRegion(
-                                        child: getBodyForMobile(),
-                                        ffi: gFFI,
-                                      ),
+                                child: orientation == Orientation.landscape
+                                    ? Stack(children: [
+                                        canvasBody,
+                                        Positioned(
+                                            top: 0,
+                                            bottom: 0,
+                                            right: 0,
+                                            child: _sideToolBar()),
+                                      ])
+                                    : canvasBody,
                               );
                             }),
                           ),
@@ -550,101 +595,130 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     );
   }
 
-  Widget getBottomAppBar() {
+  // 蓝鲸银河 v2.1 token：深空 surface（WS0-2 产物 yinhe_tokens.dart 落地后应替换为 token 引用）
+  static const Color _yinheSurface = Color(0xFF141B2A);
+
+  /// 工具栏入口按钮，触控区 ≥48px（规范 v2.1 §2.2.C）
+  Widget _barEntry(
+      {required Widget icon,
+      required String tooltip,
+      VoidCallback? onPressed}) {
+    return IconButton(
+      tooltip: tooltip,
+      constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+      iconSize: 24,
+      color: Colors.white,
+      icon: icon,
+      onPressed: onPressed,
+    );
+  }
+
+  /// 工具栏四入口（鼠标/键盘/显示/更多），竖屏底栏与横屏右侧栏共用（P2-D）。
+  List<Widget> _buildToolbarEntries() {
     final ffiModel = Provider.of<FfiModel>(context);
-    return BottomAppBar(
-      elevation: 10,
-      color: MyTheme.accent,
-      child: Row(
-        mainAxisSize: MainAxisSize.max,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: <Widget>[
-          Row(
-              children: <Widget>[
-                    IconButton(
-                      color: Colors.white,
-                      icon: Icon(Icons.clear),
-                      onPressed: () {
-                        clientClose(sessionId, gFFI);
-                      },
-                    ),
-                    IconButton(
-                      color: Colors.white,
-                      icon: Icon(Icons.tv),
-                      onPressed: () {
-                        setState(() => _showEdit = false);
-                        showOptions(context, widget.id, gFFI.dialogManager);
-                      },
-                    )
-                  ] +
-                  (isWebDesktop || ffiModel.viewOnly || !ffiModel.keyboard
-                      ? []
-                      : gFFI.ffiModel.isPeerAndroid
-                          ? [
-                              IconButton(
-                                  color: Colors.white,
-                                  icon: Icon(Icons.keyboard),
-                                  onPressed: openKeyboard),
-                              IconButton(
-                                color: Colors.white,
-                                icon: const Icon(Icons.build),
-                                onPressed: () => gFFI.dialogManager
-                                    .toggleMobileActionsOverlay(ffi: gFFI),
-                              )
-                            ]
-                          : [
-                              IconButton(
-                                  color: Colors.white,
-                                  icon: Icon(Icons.keyboard),
-                                  onPressed: openKeyboard),
-                              IconButton(
-                                color: Colors.white,
-                                icon: Icon(gFFI.ffiModel.touchMode
-                                    ? Icons.touch_app
-                                    : Icons.mouse),
-                                onPressed: () => setState(
-                                    () => _showGestureHelp = !_showGestureHelp),
-                              ),
-                            ]) +
-                  (isWeb
-                      ? []
-                      : <Widget>[
-                          futureBuilder(
-                              future: gFFI.invokeMethod(
-                                  "get_value", "KEY_IS_SUPPORT_VOICE_CALL"),
-                              hasData: (isSupportVoiceCall) => IconButton(
-                                    color: Colors.white,
-                                    icon: isAndroid && isSupportVoiceCall
-                                        ? SvgPicture.asset('assets/chat.svg',
-                                            colorFilter: ColorFilter.mode(
-                                                Colors.white, BlendMode.srcIn))
-                                        : Icon(Icons.message),
-                                    onPressed: () =>
-                                        isAndroid && isSupportVoiceCall
-                                            ? showChatOptions(widget.id)
-                                            : onPressedTextChat(widget.id),
-                                  ))
-                        ]) +
-                  [
-                    IconButton(
-                      color: Colors.white,
-                      icon: Icon(Icons.more_vert),
-                      onPressed: () {
-                        setState(() => _showEdit = false);
-                        showActions(widget.id);
-                      },
-                    ),
-                  ]),
-          Obx(() => IconButton(
-                color: Colors.white,
-                icon: Icon(Icons.expand_more),
-                onPressed: gFFI.ffiModel.waitForFirstImage.isTrue
-                    ? null
-                    : () {
-                        setState(() => _showBar = !_showBar);
-                      },
-              )),
-        ],
+    final canControl =
+        !(isWebDesktop || ffiModel.viewOnly || !ffiModel.keyboard);
+    return <Widget>[
+      // 鼠标（触控 / 虚拟鼠标模式切换）；被控为 Android 时为设备操作入口
+      if (canControl)
+        gFFI.ffiModel.isPeerAndroid
+            ? _barEntry(
+                icon: const Icon(Icons.build),
+                tooltip: translate('Actions'),
+                onPressed: () => gFFI.dialogManager
+                    .toggleMobileActionsOverlay(ffi: gFFI))
+            : _barEntry(
+                icon: Icon(gFFI.ffiModel.touchMode
+                    ? Icons.touch_app
+                    : Icons.mouse),
+                tooltip: translate('Mouse'),
+                onPressed: () =>
+                    setState(() => _showGestureHelp = !_showGestureHelp)),
+      // 键盘
+      if (canControl)
+        _barEntry(
+            icon: const Icon(Icons.keyboard),
+            tooltip: translate('Keyboard'),
+            onPressed: openKeyboard),
+      // 显示
+      _barEntry(
+          icon: const Icon(Icons.tv),
+          tooltip: translate('Display'),
+          onPressed: () {
+            setState(() => _showEdit = false);
+            showOptions(context, widget.id, gFFI.dialogManager);
+          }),
+      // 更多（断开、聊天等其余入口收进菜单）
+      _barEntry(
+          icon: const Icon(Icons.more_vert),
+          tooltip: translate('More'),
+          onPressed: () {
+            setState(() => _showEdit = false);
+            showActions(widget.id);
+          }),
+    ];
+  }
+
+  Widget _collapseEntry() => Obx(() => _barEntry(
+        icon: const Icon(Icons.expand_more),
+        tooltip: translate('Hide Toolbar'),
+        onPressed: gFFI.ffiModel.waitForFirstImage.isTrue
+            ? null
+            : () {
+                setState(() => _showBar = !_showBar);
+              },
+      ));
+
+  Widget getBottomAppBar() {
+    return SafeArea(
+      top: false,
+      child: Container(
+        height: 64,
+        decoration: BoxDecoration(
+          color: _yinheSurface,
+          border: Border(
+              top: BorderSide(
+                  color: Colors.white.withOpacity(0.08), width: 1)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.max,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: <Widget>[
+            Row(children: _buildToolbarEntries()),
+            _collapseEntry(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 蓝鲸银河 P2-D：横屏右侧纵向工具栏（宽 64px + SafeArea，同四入口语义）。
+  Widget _sideToolBar() {
+    if (_showGestureHelp ||
+        !(_showBar && gFFI.ffiModel.pi.displays.isNotEmpty)) {
+      return const Offstage();
+    }
+    return SafeArea(
+      left: false,
+      top: false,
+      bottom: false,
+      child: Container(
+        width: 64,
+        decoration: BoxDecoration(
+          color: _yinheSurface,
+          border: Border(
+              left: BorderSide(
+                  color: Colors.white.withOpacity(0.08), width: 1)),
+        ),
+        child: Column(
+          children: <Widget>[
+            const SizedBox(height: 8),
+            ..._buildToolbarEntries(),
+            const Spacer(),
+            RotatedBox(quarterTurns: 3, child: _collapseEntry()),
+            const SizedBox(height: 8),
+          ],
+        ),
       ),
     );
   }
@@ -772,22 +846,41 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     final mobileActionMenus = _getMobileActionMenus();
     final menus = toolbarControls(context, id, gFFI);
 
-    final List<PopupMenuEntry<int>> more = [
-      ...mobileActionMenus
-          .asMap()
-          .entries
-          .map((e) =>
-              PopupMenuItem<int>(child: e.value.getChild(), value: e.key))
-          .toList(),
-      if (mobileActionMenus.isNotEmpty) PopupMenuDivider(),
-      ...menus
-          .asMap()
-          .entries
-          .map((e) => PopupMenuItem<int>(
-              child: e.value.getChild(),
-              value: e.key + mobileActionMenus.length))
-          .toList(),
+    // 蓝鲸银河 WS2-2：原底栏「断开 / 聊天」入口收敛进更多菜单
+    bool isSupportVoiceCall = false;
+    if (!isWeb && isAndroid) {
+      final v = await gFFI.invokeMethod(
+          "get_value", "KEY_IS_SUPPORT_VOICE_CALL");
+      isSupportVoiceCall = v == true;
+    }
+    final leadingMenus = <TTextMenu>[
+      if (!isWeb)
+        TTextMenu(
+          child: Text(translate('Chat')),
+          onPressed: () => isSupportVoiceCall
+              ? showChatOptions(widget.id)
+              : onPressedTextChat(widget.id),
+        ),
+      TTextMenu(
+        child: Text(translate('Close')),
+        onPressed: () => clientClose(sessionId, gFFI),
+      ),
     ];
+
+    final groups = <List<TTextMenu>>[leadingMenus, mobileActionMenus, menus];
+    final flat = <TTextMenu>[
+      for (final g in groups) ...g,
+    ];
+    final more = <PopupMenuEntry<int>>[];
+    var offset = 0;
+    for (final g in groups) {
+      if (g.isEmpty) continue;
+      if (more.isNotEmpty) more.add(const PopupMenuDivider());
+      for (var i = 0; i < g.length; i++) {
+        more.add(PopupMenuItem<int>(child: g[i].getChild(), value: offset + i));
+      }
+      offset += g.length;
+    }
     () async {
       var index = await showMenu(
         context: context,
@@ -795,12 +888,8 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
         items: more,
         elevation: 8,
       );
-      if (index != null) {
-        if (index < mobileActionMenus.length) {
-          mobileActionMenus[index].onPressed?.call();
-        } else if (index < mobileActionMenus.length + more.length) {
-          menus[index - mobileActionMenus.length].onPressed?.call();
-        }
+      if (index != null && index < flat.length) {
+        flat[index].onPressed?.call();
       }
     }();
   }
@@ -939,22 +1028,23 @@ class _KeyHelpToolsState extends State<KeyHelpTools> {
 
   Widget wrap(String text, void Function() onPressed,
       {bool? active, IconData? icon}) {
+    // 蓝鲸银河 WS2-3：辅助键触控目标 ≥44x44px、字号 ≥13（WCAG / 规范 v2.1 §2.2）
     return TextButton(
         style: TextButton.styleFrom(
-          minimumSize: Size(0, 0),
-          padding: EdgeInsets.symmetric(vertical: 10, horizontal: 9.75),
+          minimumSize: const Size(44, 44),
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
           //adds padding inside the button
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          //limits the touch area to the button area
+          //limits the touch area to the button area (minimumSize 仍保证 44px 热区)
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(5.0),
           ),
           backgroundColor: active == true ? MyTheme.accent80 : null,
         ),
         child: icon != null
-            ? Icon(icon, size: 14, color: Colors.white)
+            ? Icon(icon, size: 16, color: Colors.white)
             : Text(translate(text),
-                style: TextStyle(color: Colors.white, fontSize: 11)),
+                style: const TextStyle(color: Colors.white, fontSize: 13)),
         onPressed: onPressed);
   }
 
