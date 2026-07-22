@@ -1080,7 +1080,8 @@ fn get_api_server_(api: String, custom: String) -> String {
             return format!("http://{}", s);
         }
     }
-    "https://admin.rustdesk.com".to_owned()
+    // Doshine fork: self-hosted API server (Rainbond gateway).
+    "https://api-yinhe.ljedu.net".to_owned()
 }
 
 #[inline]

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common/hbbs/hbbs.dart';
 import 'package:flutter_hbb/common/widgets/login.dart';
 import 'package:flutter_hbb/common/widgets/peers_view.dart';
+import 'package:flutter_hbb/common/widgets/empty_state.dart';
 import 'package:flutter_hbb/models/state_model.dart';
 import 'package:get/get.dart';
 
@@ -35,7 +36,9 @@ class _MyGroupState extends State<MyGroup> {
             child: ElevatedButton(
                 onPressed: loginDialog, child: Text(translate("Login"))));
       } else if (gFFI.userModel.networkError.isNotEmpty) {
-        return netWorkErrorWidget();
+        return EmptyState.loadFailed(
+            onRetry: gFFI.userModel.refreshCurrentUser,
+            detail: gFFI.userModel.networkError.value);
       } else if (gFFI.groupModel.groupLoading.value && gFFI.groupModel.emtpy) {
         return const Center(
           child: CircularProgressIndicator(),

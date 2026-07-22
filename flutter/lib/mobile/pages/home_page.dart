@@ -29,8 +29,12 @@ class HomePageState extends State<HomePage> {
   int get selectedIndex => _selectedIndex;
   final List<PageShape> _pages = [];
   int _chatPageTabIndex = -1;
+
+  /// 聊天深链页面当前是否在栈顶（原独立 Chat tab 已移除）。
+  bool isChatPageOpen = false;
+
   bool get isChatPageCurrentTab => isAndroid
-      ? _selectedIndex == _chatPageTabIndex
+      ? _selectedIndex == _chatPageTabIndex || isChatPageOpen
       : false; // change this when ios have chat page
 
   void refreshPages() {
@@ -52,11 +56,40 @@ class HomePageState extends State<HomePage> {
         appBarActions: [],
       ));
     }
+    // 蓝鲸银河 WS2-1：底部导航收敛为「连接 / 设备 / 设置」三项，
+    // 聊天不再占据独立 tab，入口并入设备页（深链跳转，见 openChatPage）。
+    // _chatPageTabIndex 保留为 -1（无 tab），聊天可见性由 isChatPageOpen 表达。
     if (isAndroid && !bind.isOutgoingOnly()) {
-      _chatPageTabIndex = _pages.length;
-      _pages.addAll([ChatPage(type: ChatPageType.mobileMain), ServerPage()]);
+      _pages.add(ServerPage());
     }
     _pages.add(SettingsPage());
+  }
+
+  /// 深链打开聊天页（替代原底部导航 Chat tab）。
+  /// 打开时清理悬浮窗与当前会话未读（与原切 tab 行为一致），
+  /// 未读角标由设备页聊天入口继续展示。
+  void openChatPage() {
+    if (isChatPageOpen) return;
+    isChatPageOpen = true;
+    final chatPage = ChatPage(type: ChatPageType.mobileMain);
+    gFFI.chatModel.hideChatIconOverlay();
+    gFFI.chatModel.hideChatWindowOverlay();
+    gFFI.chatModel.mobileClearClientUnread(gFFI.chatModel.currentKey.connId);
+    Navigator.of(context)
+        .push(MaterialPageRoute(
+            builder: (_) => Scaffold(
+                  appBar: AppBar(
+                    centerTitle: true,
+                    title: appTitle(),
+                    actions: chatPage.appBarActions,
+                  ),
+                  body: chatPage,
+                )))
+        .whenComplete(() {
+      isChatPageOpen = false;
+      gFFI.chatModel.hideChatIconOverlay();
+      gFFI.chatModel.hideChatWindowOverlay();
+    });
   }
 
   @override
@@ -140,8 +173,7 @@ class HomePageState extends State<HomePage> {
                       width: 10,
                       height: 10,
                       decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Color.fromARGB(255, 133, 246, 199)),
+                          shape: BoxShape.circle, color: MyTheme.success),
                     ).marginSymmetric(horizontal: 2),
                 ],
               ),
@@ -166,7 +198,7 @@ class WebHomePage extends StatelessWidget {
       // backgroundColor: MyTheme.grayBg,
       appBar: AppBar(
         centerTitle: true,
-        title: Text("${bind.mainGetAppNameSync()} (Preview)"),
+        title: Text(bind.mainGetAppNameSync()),
         actions: connectionPage.appBarActions,
       ),
       body: connectionPage,

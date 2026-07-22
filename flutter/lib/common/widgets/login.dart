@@ -452,6 +452,196 @@ class LoginWidgetUserPass extends StatelessWidget {
 
 const kAuthReqTypeOidc = 'oidc/';
 
+// Segmented tabs for the login dialog (M2 compatible, tokens style:
+// selected segment accent bg + white text, radius 8, height 36).
+class _LoginMethodTabs extends StatelessWidget {
+  final int index;
+  final List<String> labels;
+  final ValueChanged<int> onChanged;
+
+  const _LoginMethodTabs({
+    Key? key,
+    required this.index,
+    required this.labels,
+    required this.onChanged,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final bgColor = Theme.of(context).brightness == Brightness.dark
+        ? Colors.white.withOpacity(0.08)
+        : MyTheme.accent.withOpacity(0.08);
+    return Container(
+      height: 36,
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          for (var i = 0; i < labels.length; i++)
+            Expanded(
+              child: InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () => onChanged(i),
+                child: Container(
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: i == index ? MyTheme.accent : Colors.transparent,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    translate(labels[i]),
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: i == index
+                          ? Colors.white
+                          : Theme.of(context)
+                              .textTheme
+                              .titleLarge
+                              ?.color
+                              ?.withOpacity(0.75),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// SMS login form: phone + code with a 60s countdown "send code" button.
+class LoginWidgetSms extends StatefulWidget {
+  final TextEditingController phone;
+  final TextEditingController code;
+  final String? phoneMsg;
+  final String? codeMsg;
+  final bool isInProgress;
+  // Returns true if the code was sent successfully (starts the countdown).
+  final Future<bool> Function() onSendCode;
+  final Function() onLogin;
+
+  const LoginWidgetSms({
+    Key? key,
+    required this.phone,
+    required this.code,
+    required this.phoneMsg,
+    required this.codeMsg,
+    required this.isInProgress,
+    required this.onSendCode,
+    required this.onLogin,
+  }) : super(key: key);
+
+  @override
+  State<LoginWidgetSms> createState() => _LoginWidgetSmsState();
+}
+
+class _LoginWidgetSmsState extends State<LoginWidgetSms> {
+  static const int kCountdownSeconds = 60;
+  int _countdown = 0;
+  bool _sending = false;
+  Timer? _timer;
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _startCountdown() {
+    setState(() => _countdown = kCountdownSeconds);
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      setState(() {
+        _countdown--;
+        if (_countdown <= 0) {
+          timer.cancel();
+        }
+      });
+    });
+  }
+
+  void _onSendCode() async {
+    if (_countdown > 0 || _sending) return;
+    setState(() => _sending = true);
+    try {
+      final sent = await widget.onSendCode();
+      if (sent) _startCountdown();
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.all(0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          const SizedBox(height: 8.0),
+          DialogTextField(
+            title: translate('手机号'),
+            controller: widget.phone,
+            prefixIcon: const Icon(Icons.phone_iphone),
+            keyboardType: TextInputType.phone,
+            errorText: widget.phoneMsg,
+          ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: DialogTextField(
+                  title: translate('验证码'),
+                  controller: widget.code,
+                  prefixIcon: const Icon(Icons.lock_outline),
+                  keyboardType: TextInputType.number,
+                  errorText: widget.codeMsg,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                height: 38,
+                margin: const EdgeInsets.only(top: 12),
+                child: OutlinedButton(
+                  onPressed:
+                      (_countdown > 0 || _sending) ? null : _onSendCode,
+                  child: Text(
+                    _countdown > 0
+                        ? '${translate('重新获取')}(${_countdown}s)'
+                        : translate('获取验证码'),
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          // NOT use Offstage to wrap LinearProgressIndicator
+          if (widget.isInProgress) const LinearProgressIndicator(),
+          const SizedBox(height: 12.0),
+          FittedBox(
+              child:
+                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Container(
+              height: 38,
+              width: 200,
+              child: ElevatedButton(
+                child: Text(
+                  translate('Login'),
+                  style: TextStyle(fontSize: 16),
+                ),
+                onPressed: widget.isInProgress ? null : widget.onLogin,
+              ),
+            ),
+          ])),
+        ],
+      ),
+    );
+  }
+}
+
 // call this directly
 Future<bool?> loginDialog() async {
   var username =
@@ -466,6 +656,15 @@ Future<bool?> loginDialog() async {
   final RxString curOP = ''.obs;
   // Track hover state for the close icon
   bool isCloseHovered = false;
+
+  // SMS login tab state
+  var phone = TextEditingController();
+  var smsCode = TextEditingController();
+  String? phoneMsg;
+  String? codeMsg;
+  var smsInProgress = false;
+  int loginTabIndex = 0;
+  final phoneRegExp = RegExp(r'^1[3-9]\d{9}$');
 
   final loginOptions = [].obs;
   Future.delayed(Duration.zero, () async {
@@ -482,6 +681,23 @@ Future<bool?> loginDialog() async {
     password.addListener(() {
       if (passwordMsg != null) {
         setState(() => passwordMsg = null);
+      }
+    });
+
+    phone.addListener(() {
+      // Validate on the fly once the input is complete; shorter input is
+      // still being typed and is checked again on send/login.
+      final text = phone.text.trim();
+      final String? msg =
+          text.length >= 11 && !phoneRegExp.hasMatch(text) ? '手机号格式不正确' : null;
+      if (msg != phoneMsg) {
+        setState(() => phoneMsg = msg);
+      }
+    });
+
+    smsCode.addListener(() {
+      if (codeMsg != null) {
+        setState(() => codeMsg = null);
       }
     });
 
@@ -573,6 +789,46 @@ Future<bool?> loginDialog() async {
       setState(() => isInProgress = false);
     }
 
+    Future<bool> onSendSmsCode() async {
+      final text = phone.text.trim();
+      if (!phoneRegExp.hasMatch(text)) {
+        setState(() => phoneMsg = '手机号格式不正确');
+        return false;
+      }
+      try {
+        await gFFI.userModel.sendSmsCode(text);
+        showToast(translate('验证码已发送'));
+        return true;
+      } on RequestException catch (err) {
+        showToast(translate(err.cause));
+      } catch (err) {
+        showToast("Unknown Error: $err");
+      }
+      return false;
+    }
+
+    onSmsLogin() async {
+      final text = phone.text.trim();
+      if (!phoneRegExp.hasMatch(text)) {
+        setState(() => phoneMsg = '手机号格式不正确');
+        return;
+      }
+      if (smsCode.text.trim().isEmpty) {
+        setState(() => codeMsg = '验证码不能为空');
+        return;
+      }
+      setState(() => smsInProgress = true);
+      try {
+        final resp = await gFFI.userModel.loginSms(text, smsCode.text.trim());
+        await handleLoginResponse(resp, true, close);
+      } on RequestException catch (err) {
+        showToast(translate(err.cause));
+      } catch (err) {
+        showToast("Unknown Error: $err");
+      }
+      setState(() => smsInProgress = false);
+    }
+
     thirdAuthWidget() => Obx(() {
           return Offstage(
             offstage: loginOptions.isEmpty,
@@ -583,7 +839,7 @@ Future<bool?> loginDialog() async {
                 ),
                 Center(
                     child: Text(
-                  translate('or'),
+                  translate('第三方登录'),
                   style: TextStyle(fontSize: 16),
                 )),
                 const SizedBox(
@@ -659,21 +915,46 @@ Future<bool?> loginDialog() async {
           const SizedBox(
             height: 8.0,
           ),
-          LoginWidgetUserPass(
-            username: username,
-            pass: password,
-            usernameMsg: usernameMsg,
-            passMsg: passwordMsg,
-            isInProgress: isInProgress,
-            curOP: curOP,
-            onLogin: onLogin,
-            userFocusNode: userFocusNode,
+          _LoginMethodTabs(
+            index: loginTabIndex,
+            labels: const ['账号登录', '短信登录', '第三方登录'],
+            onChanged: (i) => setState(() => loginTabIndex = i),
           ),
-          thirdAuthWidget(),
+          IndexedStack(
+            index: loginTabIndex,
+            children: [
+              LoginWidgetUserPass(
+                username: username,
+                pass: password,
+                usernameMsg: usernameMsg,
+                passMsg: passwordMsg,
+                isInProgress: isInProgress,
+                curOP: curOP,
+                onLogin: onLogin,
+                userFocusNode: userFocusNode,
+              ),
+              LoginWidgetSms(
+                phone: phone,
+                code: smsCode,
+                phoneMsg: phoneMsg,
+                codeMsg: codeMsg,
+                isInProgress: smsInProgress,
+                onSendCode: onSendSmsCode,
+                onLogin: onSmsLogin,
+              ),
+              thirdAuthWidget(),
+            ],
+          ),
         ],
       ),
       onCancel: onDialogCancel,
-      onSubmit: onLogin,
+      onSubmit: () {
+        if (loginTabIndex == 0) {
+          onLogin();
+        } else if (loginTabIndex == 1) {
+          onSmsLogin();
+        }
+      },
     );
   });
 

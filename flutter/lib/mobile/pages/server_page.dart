@@ -16,22 +16,39 @@ import '../../models/server_model.dart';
 import 'home_page.dart';
 
 class ServerPage extends StatefulWidget implements PageShape {
+  // 蓝鲸银河 WS2-1：底部导航「设备」项（被控端设备信息 + 会话列表）
   @override
-  final title = translate("Share screen");
+  final title = translate("Your Device");
 
   @override
-  final icon = const Icon(Icons.mobile_screen_share);
+  final icon = const Icon(Icons.devices);
 
   @override
-  final appBarActions = (!bind.isDisableSettings() &&
-          bind.mainGetBuildinOption(key: kOptionHideSecuritySetting) != 'Y')
-      ? [_DropDownAction()]
-      : [];
+  final appBarActions = <Widget>[
+    // 蓝鲸银河 WS2-1：聊天入口并入设备页（原底部导航 Chat tab 已移除），
+    // 未读角标在此继续展示
+    if (isAndroid && !bind.isOutgoingOnly()) _ChatEntryAction(),
+    if (!bind.isDisableSettings() &&
+        bind.mainGetBuildinOption(key: kOptionHideSecuritySetting) != 'Y')
+      _DropDownAction(),
+  ];
 
   ServerPage({Key? key}) : super(key: key);
 
   @override
   State<StatefulWidget> createState() => _ServerPageState();
+}
+
+/// 聊天深链入口（蓝鲸银河 WS2-1），带全局未读角标。
+class _ChatEntryAction extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: translate('Chat'),
+      icon: unreadTopRightBuilder(gFFI.chatModel.mobileUnreadSum),
+      onPressed: () => HomePage.homeKey.currentState?.openChatPage(),
+    );
+  }
 }
 
 class _DropDownAction extends StatelessWidget {
@@ -242,8 +259,7 @@ class ServiceNotRunningNotification extends StatelessWidget {
 
     return PaddingCard(
         title: translate("Service is not running"),
-        titleIcon:
-            const Icon(Icons.warning_amber_sharp, color: Colors.redAccent),
+        titleIcon: const Icon(Icons.warning_amber_sharp, color: MyTheme.danger),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -319,11 +335,11 @@ class ScamWarningDialogState extends State<ScamWarningDialog> {
           child: Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                begin: Alignment.topRight,
-                end: Alignment.bottomLeft,
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
                 colors: [
-                  Color(0xffe242bc),
-                  Color(0xfff4727c),
+                  MyTheme.accent,
+                  MyTheme.idColor,
                 ],
               ),
             ),
@@ -412,7 +428,7 @@ class ScamWarningDialogState extends State<ScamWarningDialog> {
                                 }
                               },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blueAccent,
+                          backgroundColor: MyTheme.accent,
                         ),
                         child: Text(
                           isButtonLocked
@@ -435,7 +451,7 @@ class ScamWarningDialogState extends State<ScamWarningDialog> {
                           Navigator.of(context).pop();
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blueAccent,
+                          backgroundColor: MyTheme.accent,
                         ),
                         child: Text(
                           translate("Decline"),
@@ -470,8 +486,8 @@ class ServerInfo extends StatelessWidget {
   Widget build(BuildContext context) {
     final serverModel = Provider.of<ServerModel>(context);
 
-    const Color colorPositive = Colors.green;
-    const Color colorNegative = Colors.red;
+    const Color colorPositive = MyTheme.success;
+    const Color colorNegative = MyTheme.danger;
     const double iconMarginRight = 15;
     const double iconSize = 24;
     const TextStyle textStyleHeading = TextStyle(
@@ -535,39 +551,124 @@ class ServerInfo extends StatelessWidget {
                     copyToClipboard(model.serverId.value.text.trim());
                   })
             ]).marginOnly(left: 39, bottom: 10),
-            // Password
+            // 一次性协助码（蓝鲸银河 P3-6 · Helpdesk 双轨）
             Row(children: [
               const Icon(Icons.lock_outline, color: Colors.grey, size: iconSize)
                   .marginOnly(right: iconMarginRight),
               Text(
-                translate('One-time Password'),
+                translate('一次性协助码'),
                 style: textStyleHeading,
               )
             ]),
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              Text(
-                !showOneTime ? '-' : model.serverPasswd.value.text,
-                style: textStyleValue,
-              ),
-              !showOneTime
-                  ? SizedBox.shrink()
-                  : Row(children: [
-                      IconButton(
-                          visualDensity: VisualDensity.compact,
-                          icon: const Icon(Icons.refresh),
-                          onPressed: () => bind.mainUpdateTemporaryPassword()),
-                      IconButton(
-                          visualDensity: VisualDensity.compact,
-                          icon: Icon(Icons.copy_outlined),
-                          onPressed: () {
-                            copyToClipboard(
-                                model.serverPasswd.value.text.trim());
-                          })
-                    ])
-            ]).marginOnly(left: 40, bottom: 15),
+            !showOneTime
+                ? Row(children: [
+                    Text('-', style: textStyleValue),
+                  ]).marginOnly(left: 40, bottom: 15)
+                : buildHelpdeskCodeCard(context)
+                    .marginOnly(left: 39, bottom: 15),
             ConnectionStateNotification()
           ],
         ));
+  }
+
+  /// 蓝鲸银河 P3-6 · 一次性协助码卡（Helpdesk 双轨）：大号等宽分段显示
+  /// （数字脸：700 字重、-0.02em 紧字距、mono 链、tnum），
+  /// 主按钮「生成新码」（调 update_temporary_password 强制刷新），
+  /// 次按钮「复制邀请」（复制 ID + 一次性码组合文本供 IM 发送）。
+  /// 注：移动端无现成分享能力（pubspec 无 share 插件、平台通道无分享方法），
+  /// 分享 intent 按任务书「若现有分享能力可用」条件不实现。
+  /// 动效：仅使用 Material 内置按钮态，无自定义动画，天然满足
+  /// reduced-motion 降级要求。
+  Widget buildHelpdeskCodeCard(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textPrimary =
+        isDark ? YinheColors.textPrimaryDark : YinheColors.textPrimaryLight;
+    final textTertiary =
+        isDark ? YinheColors.textTertiaryDark : YinheColors.textTertiaryLight;
+    final sunken =
+        isDark ? YinheColors.surfaceSunkenDark : YinheColors.surfaceSunkenLight;
+    final displayCode = model.formatHelpdeskCode(model.serverPasswd.text.trim());
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(YinheSpacing.s12),
+      decoration: BoxDecoration(
+        color: sunken,
+        borderRadius: BorderRadius.circular(YinheRadius.control),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            displayCode,
+            style: YinheFonts.numeric(
+              fontSize: 24,
+              height: 32,
+              color: textPrimary,
+            ),
+          ),
+          const SizedBox(height: YinheSpacing.s4),
+          Text(
+            translate('此码在对方连接一次后自动失效'),
+            style: YinheTextStyles.caption.copyWith(color: textTertiary),
+          ),
+          const SizedBox(height: YinheSpacing.s8),
+          Row(children: [
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: () => bind.mainUpdateTemporaryPassword(),
+                icon: const Icon(Icons.refresh, size: 16),
+                label: Text(translate('生成新码')),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: YinheColors.blue500,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(0, YinheSize.touchTarget),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: YinheSpacing.s8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(YinheRadius.control),
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: YinheFonts.sizeBodyS,
+                    height: 20 / 13,
+                    fontWeight: YinheFonts.weightSemibold,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: YinheSpacing.s8),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  Clipboard.setData(
+                      ClipboardData(text: model.buildHelpdeskInvite()));
+                  showToast(translate('Copied'));
+                },
+                icon: const Icon(Icons.copy_outlined, size: 16),
+                label: Text(translate('复制邀请')),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: textPrimary,
+                  side: BorderSide(
+                      color: isDark
+                          ? YinheColors.borderStrongDark
+                          : YinheColors.borderStrongLight),
+                  minimumSize: const Size(0, YinheSize.touchTarget),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: YinheSpacing.s8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(YinheRadius.control),
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: YinheFonts.sizeBodyS,
+                    height: 20 / 13,
+                    fontWeight: YinheFonts.weightSemibold,
+                  ),
+                ),
+              ),
+            ),
+          ]),
+        ],
+      ),
+    );
   }
 }
 
@@ -600,7 +701,7 @@ class _PermissionCheckerState extends State<PermissionChecker> {
               ? ElevatedButton.icon(
                       style: ButtonStyle(
                           backgroundColor:
-                              MaterialStateProperty.all(Colors.red)),
+                              MaterialStateProperty.all(MyTheme.danger)),
                       icon: const Icon(Icons.stop),
                       onPressed: serverModel.toggleService,
                       label: Text(translate("Stop service")))
@@ -700,11 +801,9 @@ class ConnectionManager extends StatelessWidget {
                                   onPressed: () {
                                     gFFI.chatModel.changeCurrentKey(
                                         MessageKey(client.peerId, client.id));
-                                    final bar = navigationBarKey.currentWidget;
-                                    if (bar != null) {
-                                      bar as BottomNavigationBar;
-                                      bar.onTap!(1);
-                                    }
+                                    // 蓝鲸银河 WS2-1：聊天已无独立 tab，改深链打开
+                                    HomePage.homeKey.currentState
+                                        ?.openChatPage();
                                   },
                                   icon: unreadTopRightBuilder(
                                       client.unreadChatMessageCount)))
@@ -727,7 +826,8 @@ class ConnectionManager extends StatelessWidget {
 
   Widget _buildDisconnectButton(Client client) {
     final disconnectButton = ElevatedButton.icon(
-      style: ButtonStyle(backgroundColor: MaterialStatePropertyAll(Colors.red)),
+      style: ButtonStyle(
+          backgroundColor: MaterialStatePropertyAll(MyTheme.danger)),
       icon: const Icon(Icons.close),
       onPressed: () {
         bind.cmCloseConnection(connId: client.id);
@@ -741,7 +841,7 @@ class ConnectionManager extends StatelessWidget {
         0,
         ElevatedButton.icon(
           style: ButtonStyle(
-              backgroundColor: MaterialStatePropertyAll(Colors.red)),
+              backgroundColor: MaterialStatePropertyAll(MyTheme.danger)),
           icon: const Icon(Icons.phone),
           label: Text(translate("Stop")),
           onPressed: () {

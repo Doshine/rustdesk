@@ -18,6 +18,7 @@ import '../../common.dart';
 import '../../common/formatter/id_formatter.dart';
 import '../../common/widgets/peer_tab_page.dart';
 import '../../common/widgets/autocomplete.dart';
+import '../../common/widgets/radar_status_dot.dart';
 import '../../models/platform_model.dart';
 import '../../desktop/widgets/material_mod_popup_menu.dart' as mod_menu;
 
@@ -112,18 +113,17 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
     basicWidget() => Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Container(
-              height: 8,
-              width: 8,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(4),
-                color: _svcStopped.value ||
-                        stateGlobal.svcStatus.value == SvcStatus.connecting
-                    ? kColorWarn
-                    : (stateGlobal.svcStatus.value == SvcStatus.ready
-                        ? Color.fromARGB(255, 50, 190, 166)
-                        : Color.fromARGB(255, 224, 79, 95)),
-              ),
+            // 蓝鲸银河：雷达节点状态（规范 v2.1 §3.11），替代旧 8px 圆点。
+            // 就绪=在线呼吸脉冲，连接中=品牌蓝缺口环，服务停止=警告，未就绪=危险。
+            RadarStatusDot(
+              status: _svcStopped.value
+                  ? RadarDotStatus.warning
+                  : (stateGlobal.svcStatus.value == SvcStatus.connecting
+                      ? RadarDotStatus.connecting
+                      : (stateGlobal.svcStatus.value == SvcStatus.ready
+                          ? RadarDotStatus.online
+                          : RadarDotStatus.danger)),
+              size: RadarDotSize.small,
             ).marginSymmetric(horizontal: em),
             Container(
               width: isIncomingOnly ? 226 : null,
@@ -233,6 +233,8 @@ class _ConnectionPageState extends State<ConnectionPage>
     }
     Get.put<TextEditingController>(_idEditingController);
     Get.put<IDTextEditingController>(_idController);
+    // Also registered so that the empty state action can focus the ID input.
+    Get.put<FocusNode>(_idFocusNode);
     windowManager.addListener(this);
   }
 
@@ -249,6 +251,9 @@ class _ConnectionPageState extends State<ConnectionPage>
     }
     if (Get.isRegistered<TextEditingController>()) {
       Get.delete<TextEditingController>();
+    }
+    if (Get.isRegistered<FocusNode>()) {
+      Get.delete<FocusNode>();
     }
     super.dispose();
   }
@@ -345,8 +350,9 @@ class _ConnectionPageState extends State<ConnectionPage>
       width: 320 + 20 * 2,
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
       decoration: BoxDecoration(
-          borderRadius: const BorderRadius.all(Radius.circular(13)),
-          border: Border.all(color: Theme.of(context).colorScheme.background)),
+          borderRadius:
+              const BorderRadius.all(Radius.circular(12)), // tokens: radius.lg
+          border: Border.all(color: MyTheme.color(context).border!)),
       child: Ink(
         child: Column(
           children: [
@@ -421,6 +427,8 @@ class _ConnectionPageState extends State<ConnectionPage>
                             fontFamily: 'WorkSans',
                             fontSize: 22,
                             height: 1.4,
+                            // tokens v2.1: 关键数字 tabular-nums（规范 §1.3）
+                            fontFeatures: [FontFeature('tnum')],
                           ),
                           maxLines: 1,
                           cursorColor:
@@ -469,7 +477,8 @@ class _ConnectionPageState extends State<ConnectionPage>
                           decoration: BoxDecoration(
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.3),
+                                // tokens: shadow.md 深色近似
+                                color: Colors.black.withOpacity(0.24),
                                 blurRadius: 5,
                                 spreadRadius: 1,
                               ),

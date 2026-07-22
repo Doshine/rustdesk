@@ -33,7 +33,8 @@ class DesktopHomePage extends StatefulWidget {
   State<DesktopHomePage> createState() => _DesktopHomePageState();
 }
 
-const borderColor = Color(0xFF2F65BA);
+// tokens v2.1: 深空品牌描边（旧 #2F65BA 已对齐品牌蓝梯度）
+const borderColor = YinheColors.blue800;
 
 class _DesktopHomePageState extends State<DesktopHomePage>
     with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
@@ -53,6 +54,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   final RxBool _editHover = false.obs;
   final RxBool _block = false.obs;
+
+  /// 身份卡一次性密码可见性（规范 §2.1.A 隐藏钮）
+  final RxBool _passwordVisible = true.obs;
 
   final GlobalKey _childKey = GlobalKey();
 
@@ -92,7 +96,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       ),
       buildTip(context),
       if (!isOutgoingOnly) buildIDBoard(context),
-      if (!isOutgoingOnly) buildPasswordBoard(context),
       FutureBuilder<Widget>(
         future: Future.value(
             Obx(() => buildHelpCards(stateGlobal.updateUrl.value))),
@@ -131,7 +134,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     return ChangeNotifierProvider.value(
       value: gFFI.serverModel,
       child: Container(
-        width: isIncomingOnly ? 280.0 : 200.0,
+        width: isIncomingOnly ? 280.0 : 220.0,
         color: Theme.of(context).colorScheme.background,
         child: Stack(
           children: [
@@ -144,7 +147,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                     children: children,
                   ),
                 ),
-                Expanded(child: Container())
+                // 侧栏底部品牌推广卡（仅标准主窗口模式；
+                // incoming/outgoing-only 精简模式不展示）
+                Expanded(
+                  child: (isIncomingOnly || isOutgoingOnly)
+                      ? Container()
+                      : Align(
+                          alignment: Alignment.bottomCenter,
+                          child: buildBrandPromoCard(context),
+                        ),
+                )
               ],
             ),
             if (isOutgoingOnly)
@@ -187,91 +199,283 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
+  /// 主窗口身份卡（规范 §2.1.A）：
+  /// 188px 宽卡片（#192234 底、#273247 边、圆角 12、内边距 16、顶部内高光），
+  /// ID 28/36 数字脸（700 字重、-0.02em、mono、tnum）+ 32px 复制图标钮，
+  /// 一次性密码 18/26 + 刷新/隐藏/修改钮。
   buildIDBoard(BuildContext context) {
-    final model = gFFI.serverModel;
-    return Container(
-      margin: const EdgeInsets.only(left: 20, right: 11),
-      height: 57,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.baseline,
-        textBaseline: TextBaseline.alphabetic,
-        children: [
-          Container(
-            width: 2,
-            decoration: const BoxDecoration(color: MyTheme.accent),
-          ).marginOnly(top: 5),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(left: 7),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    height: 25,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          translate("ID"),
-                          style: TextStyle(
-                              fontSize: 14,
-                              color: Theme.of(context)
-                                  .textTheme
-                                  .titleLarge
-                                  ?.color
-                                  ?.withOpacity(0.5)),
-                        ).marginOnly(top: 5),
-                        buildPopupMenu(context)
-                      ],
-                    ),
-                  ),
-                  Flexible(
-                    child: GestureDetector(
-                      onDoubleTap: () {
-                        Clipboard.setData(
-                            ClipboardData(text: model.serverId.text));
-                        showToast(translate("Copied"));
-                      },
-                      child: TextFormField(
-                        controller: model.serverId,
-                        readOnly: true,
-                        decoration: InputDecoration(
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.only(top: 10, bottom: 10),
-                        ),
-                        style: TextStyle(
-                          fontSize: 22,
-                        ),
-                      ).workaroundFreezeLinuxMint(),
-                    ),
-                  )
-                ],
+    return ChangeNotifierProvider.value(
+      value: gFFI.serverModel,
+      child: Consumer<ServerModel>(
+        builder: (context, model, child) {
+          final showOneTime = model.approveMode != 'click' &&
+              model.verificationMethod != kUsePermanentPassword;
+          return Container(
+            margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            padding: const EdgeInsets.all(YinheSpacing.s16),
+            decoration: BoxDecoration(
+              color: YinheColors.surfaceRaisedDark,
+              borderRadius: BorderRadius.circular(YinheRadius.card),
+              border: Border.all(color: YinheColors.borderDark, width: 1),
+              // Raised 顶部 1px 内高光近似（规范 §1.2，Flutter 无 inset shadow）
+              gradient: const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [YinheColors.raisedTopHighlight, Colors.transparent],
+                stops: [0.0, 0.12],
               ),
             ),
-          ),
-        ],
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      translate("ID"),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        height: 18 / 12,
+                        fontWeight: FontWeight.w500,
+                        color: YinheColors.textSecondaryDark,
+                      ),
+                    ),
+                    buildPopupMenu(context),
+                  ],
+                ),
+                const SizedBox(height: YinheSpacing.s4),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SelectableText(
+                        model.serverId.text,
+                        style: YinheFonts.numeric(
+                          fontSize: 28,
+                          height: 36,
+                          color: YinheColors.textPrimaryDark,
+                        ),
+                      ),
+                    ),
+                    _buildCopyIdButton(model),
+                  ],
+                ),
+                const SizedBox(height: YinheSpacing.s12),
+                Container(height: 1, color: YinheColors.dividerDark),
+                const SizedBox(height: YinheSpacing.s12),
+                _buildPasswordRow(model, showOneTime),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
 
+  /// 32px 复制图标钮（替代双击复制），hover 底 rgba(90,158,255,.12)，
+  /// 复制成功图标 120ms 切换反馈（WS1-4）。
+  Widget _buildCopyIdButton(ServerModel model) {
+    final RxBool hover = false.obs;
+    final RxBool copied = false.obs;
+    return Tooltip(
+      message: translate('Copy ID'),
+      child: InkWell(
+        onTap: () {
+          Clipboard.setData(ClipboardData(text: model.serverId.text));
+          showToast(translate("Copied"));
+          copied.value = true;
+          Future.delayed(const Duration(milliseconds: 1200), () {
+            copied.value = false;
+          });
+        },
+        onHover: (v) => hover.value = v,
+        borderRadius: BorderRadius.circular(YinheRadius.controlCompact),
+        child: Obx(
+          () => AnimatedContainer(
+            duration: YinheMotion.hover,
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: hover.value ? YinheColors.blue400A12 : Colors.transparent,
+              borderRadius: BorderRadius.circular(YinheRadius.controlCompact),
+            ),
+            child: AnimatedSwitcher(
+              duration: YinheMotion.copyFeedback,
+              child: Icon(
+                copied.value ? Icons.check : Icons.copy_outlined,
+                key: ValueKey(copied.value),
+                size: 18,
+                color: copied.value
+                    ? YinheColors.successDark
+                    : YinheColors.textSecondaryDark,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 一次性密码行：18/26 等宽数字 + 刷新 / 隐藏 / 修改 32px 图标钮。
+  Widget _buildPasswordRow(ServerModel model, bool showOneTime) {
+    final RxBool refreshHover = false.obs;
+    final RxBool hideHover = false.obs;
+    final RxBool editHover = false.obs;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        AutoSizeText(
+          translate("One-time Password"),
+          style: const TextStyle(
+            fontSize: 12,
+            height: 18 / 12,
+            fontWeight: FontWeight.w500,
+            color: YinheColors.textSecondaryDark,
+          ),
+          maxLines: 1,
+        ),
+        const SizedBox(height: YinheSpacing.s4),
+        Row(
+          children: [
+            Expanded(
+              child: Obx(
+                () => Text(
+                  _passwordVisible.value
+                      ? model.serverPasswd.text
+                      : '•' * model.serverPasswd.text.length,
+                  style: YinheFonts.numeric(
+                    fontSize: 18,
+                    height: 26,
+                    fontWeight: FontWeight.w600,
+                    color: YinheColors.textPrimaryDark,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
+              ),
+            ),
+            if (showOneTime)
+              AnimatedRotationWidget(
+                onPressed: () => bind.mainUpdateTemporaryPassword(),
+                child: Tooltip(
+                  message: translate('Refresh Password'),
+                  child: Obx(
+                    () => AnimatedContainer(
+                      duration: YinheMotion.hover,
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: refreshHover.value
+                            ? YinheColors.blue400A12
+                            : Colors.transparent,
+                        borderRadius:
+                            BorderRadius.circular(YinheRadius.controlCompact),
+                      ),
+                      child: RotatedBox(
+                        quarterTurns: 2,
+                        child: Icon(
+                          Icons.refresh,
+                          size: 18,
+                          color: refreshHover.value
+                              ? YinheColors.textPrimaryDark
+                              : YinheColors.textSecondaryDark,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                onHover: (value) => refreshHover.value = value,
+              ),
+            Tooltip(
+              message: translate(
+                  _passwordVisible.value ? 'Hide Password' : 'Show Password'),
+              child: InkWell(
+                onTap: () => _passwordVisible.value = !_passwordVisible.value,
+                onHover: (v) => hideHover.value = v,
+                borderRadius: BorderRadius.circular(YinheRadius.controlCompact),
+                child: Obx(
+                  () => AnimatedContainer(
+                    duration: YinheMotion.hover,
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: hideHover.value
+                          ? YinheColors.blue400A12
+                          : Colors.transparent,
+                      borderRadius:
+                          BorderRadius.circular(YinheRadius.controlCompact),
+                    ),
+                    child: Icon(
+                      _passwordVisible.value
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                      size: 18,
+                      color: hideHover.value
+                          ? YinheColors.textPrimaryDark
+                          : YinheColors.textSecondaryDark,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            if (!bind.isDisableSettings())
+              Tooltip(
+                message: translate('Change Password'),
+                child: InkWell(
+                  onTap: () =>
+                      DesktopSettingPage.switch2page(SettingsTabKey.safety),
+                  onHover: (v) => editHover.value = v,
+                  borderRadius:
+                      BorderRadius.circular(YinheRadius.controlCompact),
+                  child: Obx(
+                    () => AnimatedContainer(
+                      duration: YinheMotion.hover,
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: editHover.value
+                            ? YinheColors.blue400A12
+                            : Colors.transparent,
+                        borderRadius:
+                            BorderRadius.circular(YinheRadius.controlCompact),
+                      ),
+                      child: Icon(
+                        Icons.edit_outlined,
+                        size: 18,
+                        color: editHover.value
+                            ? YinheColors.textPrimaryDark
+                            : YinheColors.textSecondaryDark,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
   Widget buildPopupMenu(BuildContext context) {
-    final textColor = Theme.of(context).textTheme.titleLarge?.color;
     RxBool hover = false.obs;
     return InkWell(
       onTap: DesktopTabPage.onAddSetting,
       child: Tooltip(
         message: translate('Settings'),
         child: Obx(
-          () => CircleAvatar(
-            radius: 15,
-            backgroundColor: hover.value
-                ? Theme.of(context).scaffoldBackgroundColor
-                : Theme.of(context).colorScheme.background,
+          () => AnimatedContainer(
+            duration: YinheMotion.hover,
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: hover.value ? YinheColors.blue400A12 : Colors.transparent,
+              borderRadius: BorderRadius.circular(YinheRadius.controlCompact),
+            ),
             child: Icon(
               Icons.more_vert_outlined,
-              size: 20,
-              color: hover.value ? textColor : textColor?.withOpacity(0.5),
+              size: 18,
+              color: hover.value
+                  ? YinheColors.textPrimaryDark
+                  : YinheColors.textSecondaryDark,
             ),
           ),
         ),
@@ -280,107 +484,68 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
-  buildPasswordBoard(BuildContext context) {
-    return ChangeNotifierProvider.value(
-        value: gFFI.serverModel,
-        child: Consumer<ServerModel>(
-          builder: (context, model, child) {
-            return buildPasswordBoard2(context, model);
-          },
-        ));
-  }
-
-  buildPasswordBoard2(BuildContext context, ServerModel model) {
-    RxBool refreshHover = false.obs;
-    RxBool editHover = false.obs;
-    final textColor = Theme.of(context).textTheme.titleLarge?.color;
-    final showOneTime = model.approveMode != 'click' &&
-        model.verificationMethod != kUsePermanentPassword;
+  /// 侧栏底部品牌推广卡（规范 §2.1.A / §8.1，强度 40%）：
+  /// 银河三段渐变 + 占位鲸 Logo 位 + 文案至多两行。
+  /// 正式 Logo 资产到位后仅替换占位子树（见规范 §8.4）。
+  Widget buildBrandPromoCard(BuildContext context) {
     return Container(
-      margin: EdgeInsets.only(left: 20.0, right: 16, top: 13, bottom: 13),
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      padding: const EdgeInsets.all(YinheSpacing.s12),
+      decoration: BoxDecoration(
+        gradient: YinheColors.galaxyGradient,
+        borderRadius: BorderRadius.circular(YinheRadius.promo),
+      ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.baseline,
-        textBaseline: TextBaseline.alphabetic,
         children: [
+          // 占位鲸 Logo 位
           Container(
-            width: 2,
-            height: 52,
-            decoration: BoxDecoration(color: MyTheme.accent),
-          ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(left: 7),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  AutoSizeText(
-                    translate("One-time Password"),
-                    style: TextStyle(
-                        fontSize: 14, color: textColor?.withOpacity(0.5)),
-                    maxLines: 1,
-                  ),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: GestureDetector(
-                          onDoubleTap: () {
-                            if (showOneTime) {
-                              Clipboard.setData(
-                                  ClipboardData(text: model.serverPasswd.text));
-                              showToast(translate("Copied"));
-                            }
-                          },
-                          child: TextFormField(
-                            controller: model.serverPasswd,
-                            readOnly: true,
-                            decoration: InputDecoration(
-                              border: InputBorder.none,
-                              contentPadding:
-                                  EdgeInsets.only(top: 14, bottom: 10),
-                            ),
-                            style: TextStyle(fontSize: 15),
-                          ).workaroundFreezeLinuxMint(),
-                        ),
-                      ),
-                      if (showOneTime)
-                        AnimatedRotationWidget(
-                          onPressed: () => bind.mainUpdateTemporaryPassword(),
-                          child: Tooltip(
-                            message: translate('Refresh Password'),
-                            child: Obx(() => RotatedBox(
-                                quarterTurns: 2,
-                                child: Icon(
-                                  Icons.refresh,
-                                  color: refreshHover.value
-                                      ? textColor
-                                      : Color(0xFFDDDDDD),
-                                  size: 22,
-                                ))),
-                          ),
-                          onHover: (value) => refreshHover.value = value,
-                        ).marginOnly(right: 8, top: 4),
-                      if (!bind.isDisableSettings())
-                        InkWell(
-                          child: Tooltip(
-                            message: translate('Change Password'),
-                            child: Obx(
-                              () => Icon(
-                                Icons.edit,
-                                color: editHover.value
-                                    ? textColor
-                                    : Color(0xFFDDDDDD),
-                                size: 22,
-                              ).marginOnly(right: 8, top: 4),
-                            ),
-                          ),
-                          onTap: () => DesktopSettingPage.switch2page(
-                              SettingsTabKey.safety),
-                          onHover: (value) => editHover.value = value,
-                        ),
-                    ],
-                  ),
-                ],
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(YinheRadius.card),
+            ),
+            child: const Center(
+              child: Text(
+                '鲸',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  height: 1,
+                ),
               ),
+            ),
+          ),
+          const SizedBox(width: YinheSpacing.s12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  '蓝鲸银河',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    height: 20 / 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  '安全连接每一台设备',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.82),
+                    fontSize: 11,
+                    height: 16 / 11,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -607,11 +772,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           child: Container(
               decoration: BoxDecoration(
                   gradient: LinearGradient(
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
+                // tokens: brand.gradient 135deg #2F80FF → #00C2FF
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
                 colors: [
-                  Color.fromARGB(255, 226, 66, 188),
-                  Color.fromARGB(255, 244, 114, 124),
+                  MyTheme.accent,
+                  MyTheme.idColor,
                 ],
               )),
               padding: EdgeInsets.all(20),
@@ -1067,13 +1233,12 @@ void setPasswordDialog({VoidCallback? notEmptyCallback}) async {
                         label: Text(
                           e.name,
                           style: TextStyle(
-                              color: checked
-                                  ? const Color(0xFF0A9471)
-                                  : Color.fromARGB(255, 198, 86, 157)),
+                              color:
+                                  checked ? MyTheme.success : MyTheme.warning),
                         ),
                         backgroundColor: checked
-                            ? const Color(0xFFD0F7ED)
-                            : Color.fromARGB(255, 247, 205, 232));
+                            ? MyTheme.success.withOpacity(0.12)
+                            : MyTheme.warning.withOpacity(0.12));
                   }).toList(),
                 ))
           ],

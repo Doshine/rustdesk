@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // 蓝鲸银河 P3-6：Clipboard（复制邀请）
 import 'package:flutter_hbb/common/widgets/audio_input.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/widgets/tabbar_widget.dart';
@@ -178,7 +179,11 @@ class ConnectionManagerState extends State<ConnectionManager>
               buildTitleBar(),
               Expanded(
                 child: Center(
-                  child: Text(translate("Waiting")),
+                  // 蓝鲸银河 P3-6：CM 空态升级为「远程协助」面板
+                  // （Helpdesk 双轨，一次性协助码 + 生成新码 / 复制邀请）
+                  child: SingleChildScrollView(
+                    child: buildHelpdeskPanel(context, serverModel),
+                  ),
                 ),
               ),
             ],
@@ -303,6 +308,191 @@ class ConnectionManagerState extends State<ConnectionManager>
             width: 4.0,
           ),
           const _CloseButton()
+        ],
+      ),
+    );
+  }
+
+  /// 蓝鲸银河 P3-6 · CM 空态「远程协助」面板（Helpdesk 双轨，对齐
+  /// Chrome Remote Desktop 远程协助模式）：一次性访问码大号等宽分段显示
+  /// （数字脸 18/26：700 字重、-0.02em 紧字距、mono 链、tnum），
+  /// 主按钮「生成新码」（调 update_temporary_password 强制刷新），
+  /// 次按钮「复制邀请」（复制 ID + 一次性码组合文本供 IM 发送），
+  /// 附「此码在对方连接一次后自动失效」说明。
+  Widget buildHelpdeskPanel(BuildContext context, ServerModel serverModel) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surface =
+        isDark ? YinheColors.surfaceRaisedDark : YinheColors.surfaceLight;
+    final border = isDark ? YinheColors.borderDark : YinheColors.borderLight;
+    final divider = isDark ? YinheColors.dividerDark : YinheColors.dividerLight;
+    final textPrimary =
+        isDark ? YinheColors.textPrimaryDark : YinheColors.textPrimaryLight;
+    final textSecondary = isDark
+        ? YinheColors.textSecondaryDark
+        : YinheColors.textSecondaryLight;
+    final textTertiary =
+        isDark ? YinheColors.textTertiaryDark : YinheColors.textTertiaryLight;
+    // reduced-motion 降级：系统「减弱动态效果」开启时，复制反馈图标切换
+    // 退化为瞬时切换（0ms），其余均使用 Material 内置按钮态。
+    final reduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    final showOneTime = serverModel.approveMode != 'click' &&
+        serverModel.verificationMethod != kUsePermanentPassword;
+    final displayCode = showOneTime
+        ? serverModel.formatHelpdeskCode(serverModel.serverPasswd.text.trim())
+        : '-';
+    final RxBool copied = false.obs;
+
+    return Container(
+      width: 268, // CM 窗口 300px - 两侧各 16px 外边距
+      margin: const EdgeInsets.all(YinheSpacing.s16),
+      padding: const EdgeInsets.all(YinheSpacing.s16),
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(YinheRadius.card),
+        border: Border.all(color: border, width: 1),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(
+              Icons.headset_mic_outlined,
+              size: 18,
+              color: isDark ? YinheColors.blue400 : YinheColors.blue500,
+            ),
+            const SizedBox(width: YinheSpacing.s8),
+            Expanded(
+              child: Text(
+                translate('远程协助'),
+                style: YinheTextStyles.titleM.copyWith(color: textPrimary),
+              ),
+            ),
+          ]),
+          const SizedBox(height: YinheSpacing.s4),
+          Text(
+            '${translate("Waiting")}…',
+            style: YinheTextStyles.caption.copyWith(color: textTertiary),
+          ),
+          const SizedBox(height: YinheSpacing.s12),
+          Container(height: 1, color: divider),
+          const SizedBox(height: YinheSpacing.s12),
+          Text(
+            translate('一次性协助码'),
+            style: YinheTextStyles.label.copyWith(color: textSecondary),
+          ),
+          const SizedBox(height: YinheSpacing.s4),
+          SelectableText(
+            displayCode,
+            style: YinheFonts.numeric(
+              fontSize: 18,
+              height: 26,
+              color: textPrimary,
+            ),
+          ),
+          const SizedBox(height: YinheSpacing.s4),
+          Text(
+            '${translate('ID')}: ${serverModel.serverId.text.trim()}',
+            style: YinheFonts.numeric(
+              fontSize: YinheFonts.sizeBodyS,
+              height: 20,
+              fontWeight: YinheFonts.weightSemibold,
+              color: textSecondary,
+            ),
+          ),
+          const SizedBox(height: YinheSpacing.s8),
+          Text(
+            translate('此码在对方连接一次后自动失效'),
+            style: YinheTextStyles.caption.copyWith(color: textTertiary),
+          ),
+          const SizedBox(height: YinheSpacing.s12),
+          Row(children: [
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: showOneTime
+                    ? () => bind.mainUpdateTemporaryPassword()
+                    : null,
+                icon: const Icon(Icons.refresh, size: 16),
+                label: Text(translate('生成新码')),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: YinheColors.blue500,
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: isDark
+                      ? YinheColors.surfaceSunkenDark
+                      : YinheColors.neutral100,
+                  disabledForegroundColor: isDark
+                      ? YinheColors.textDisabledDark
+                      : YinheColors.textDisabledLight,
+                  minimumSize: const Size(0, YinheSize.buttonDefault),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: YinheSpacing.s8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(YinheRadius.control),
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: YinheFonts.sizeBodyS,
+                    height: 20 / 13,
+                    fontWeight: YinheFonts.weightSemibold,
+                  ),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ),
+            const SizedBox(width: YinheSpacing.s8),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: showOneTime
+                    ? () {
+                        Clipboard.setData(ClipboardData(
+                            text: serverModel.buildHelpdeskInvite()));
+                        showToast(translate('Copied'));
+                        copied.value = true;
+                        Future.delayed(const Duration(milliseconds: 1200), () {
+                          copied.value = false;
+                        });
+                      }
+                    : null,
+                icon: Obx(
+                  () => AnimatedSwitcher(
+                    duration: reduceMotion
+                        ? Duration.zero
+                        : YinheMotion.copyFeedback,
+                    child: Icon(
+                      copied.value ? Icons.check : Icons.copy_outlined,
+                      key: ValueKey(copied.value),
+                      size: 16,
+                      color: copied.value
+                          ? (isDark
+                              ? YinheColors.successDark
+                              : YinheColors.successLight)
+                          : null,
+                    ),
+                  ),
+                ),
+                label: Text(translate('复制邀请')),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: textPrimary,
+                  side: BorderSide(
+                      color: isDark
+                          ? YinheColors.borderStrongDark
+                          : YinheColors.borderStrongLight),
+                  minimumSize: const Size(0, YinheSize.buttonDefault),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: YinheSpacing.s8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(YinheRadius.control),
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: YinheFonts.sizeBodyS,
+                    height: 20 / 13,
+                    fontWeight: YinheFonts.weightSemibold,
+                  ),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ),
+          ]),
         ],
       ),
     );
@@ -446,9 +636,10 @@ class _CmHeaderState extends State<_CmHeader>
         gradient: LinearGradient(
           begin: Alignment.topRight,
           end: Alignment.bottomLeft,
+          // tokens: 蓝青两段渐变（品牌蓝 → 星河青，规范 §1.1）
           colors: [
-            Color(0xff00bfe1),
-            Color(0xff0071ff),
+            YinheColors.blue500,
+            YinheColors.cyan500,
           ],
         ),
       ),

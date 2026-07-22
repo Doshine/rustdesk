@@ -55,4 +55,6 @@ examples/**/target/
 vcpkg_installed
 flutter/lib/generated_plugin_registrant.dart
 libsciter.dylib
-flutter/web/
+# web client 品牌图标（蓝鲸银河，需入库）
+!flutter/web/favicon.png
+!flutter/web/icons/*.png

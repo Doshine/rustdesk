@@ -2,9 +2,11 @@ import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common/widgets/dialog.dart';
+import 'package:flutter_hbb/common/widgets/radar_status_dot.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/models/peer_tab_model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
+import 'package:flutter_hbb/theme/yinhe_tokens.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 
@@ -51,11 +53,64 @@ class _PeerCardState extends State<_PeerCard>
   final double _tileRadius = 5;
   final double _borderWidth = 2;
 
+  // 蓝鲸银河 §2.1.B 设备卡交互态：_hovering 仅由桌面/横屏布局的
+  // MouseRegion 置位；_pressing 由 GestureDetector 按压回调置位（双端）。
+  bool _hovering = false;
+  bool _pressing = false;
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return Obx(() =>
-        stateGlobal.isPortrait.isTrue ? _buildPortrait() : _buildLandscape());
+    return Obx(() => stateGlobal.isPortrait.isTrue
+        ? _wrapCardMotion(child: _buildPortrait(), radius: _tileRadius)
+        : _wrapCardMotion(
+            child: _buildLandscape(),
+            radius: peerCardUiType.value == PeerUiType.grid
+                ? _cardRadius
+                : _tileRadius));
+  }
+
+  /// 蓝鲸银河 §2.1.B / §1.4 / §1.5：设备卡交互态包装（桌面移动双端安全）。
+  ///
+  /// - hover（仅可点击卡生效；本卡均可点击）：上移 1px + Elevation 1 阴影
+  ///   （[YinheElevation]，随明暗主题取 elev1 / elev1Dark）。hover 仅由
+  ///   _buildLandscape 的 MouseRegion 触发（桌面/Web 指针端）；portrait
+  ///   移动布局无 MouseRegion，_hovering 恒 false，天然不触发。
+  /// - 按压：scale 0.99（[YinheMotion.press] 0.12s ease）。触摸与指针均走
+  ///   onTapDown/Up/Cancel，双端安全。平台差异沿用本文件既有
+  ///   isDesktop/isMobile/isWeb 封装（内部已做 kIsWeb/Platform 保护），
+  ///   本文件不直接引用 dart:io，Web 安全。
+  /// - reduced-motion（系统减少动态效果，MediaQuery.disableAnimations）：
+  ///   过渡时长归零、直接切换状态，对齐规范 §1.5 Motion Hover/Press 的
+  ///   「无过渡」降级列；雷达点动效降级由 RadarStatusDot 内部自理。
+  Widget _wrapCardMotion({required Widget child, required double radius}) {
+    final bool reduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    final bool dark = Theme.of(context).brightness == Brightness.dark;
+    final Duration duration = reduceMotion
+        ? Duration.zero
+        : (_pressing ? YinheMotion.press : YinheMotion.hover);
+    return AnimatedContainer(
+      duration: duration,
+      curve: YinheMotion.ease,
+      transform: Matrix4.translationValues(0.0, _hovering ? -1.0 : 0.0, 0.0)
+        ..scale(_pressing ? 0.99 : 1.0),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(radius),
+        boxShadow: _hovering
+            ? (dark ? YinheElevation.elev1Dark : YinheElevation.elev1)
+            : const <BoxShadow>[],
+      ),
+      child: child,
+    );
+  }
+
+  void _setPressing(bool v) {
+    if (_pressing != v && mounted) setState(() => _pressing = v);
+  }
+
+  void _setHovering(bool v) {
+    if (_hovering != v && mounted) setState(() => _hovering = v);
   }
 
   Widget gestureDetector({required Widget child}) {
@@ -64,7 +119,10 @@ class _PeerCardState extends State<_PeerCard>
     return GestureDetector(
         onDoubleTap: peerTabModel.multiSelectionMode
             ? null
-            : () => widget.connect(context, peer.id),
+            : () {
+                _setPressing(false);
+                widget.connect(context, peer.id);
+              },
         onTap: () {
           if (peerTabModel.multiSelectionMode) {
             peerTabModel.select(peer);
@@ -76,6 +134,12 @@ class _PeerCardState extends State<_PeerCard>
             }
           }
         },
+        // 蓝鲸银河 §2.1.B：按压态 scale 0.99（渲染见 _wrapCardMotion）。
+        // 长按/双击在手势竞技场胜出后，tap 侧经 onTapCancel / onDoubleTap
+        // 复位，不会残留按压态。
+        onTapDown: (_) => _setPressing(true),
+        onTapUp: (_) => _setPressing(false),
+        onTapCancel: () => _setPressing(false),
         onLongPress: () => peerTabModel.select(peer),
         child: child);
   }
@@ -103,7 +167,11 @@ class _PeerCardState extends State<_PeerCard>
     );
     return MouseRegion(
       onEnter: (evt) {
+        // 蓝鲸银河 §2.1.B：hover 上移 1px + Elevation 1（渲染见 _wrapCardMotion）。
+        _setHovering(true);
         deco.value = BoxDecoration(
+          // tokens: brand.primarySubtle
+          color: MyTheme.accent.withOpacity(0.08),
           border: Border.all(
               color: Theme.of(context).colorScheme.primary,
               width: _borderWidth),
@@ -113,6 +181,7 @@ class _PeerCardState extends State<_PeerCard>
         );
       },
       onExit: (evt) {
+        _setHovering(false);
         deco.value = BoxDecoration(
           border: Border.all(color: Colors.transparent, width: _borderWidth),
           borderRadius: BorderRadius.circular(
@@ -433,17 +502,20 @@ class _PeerCardState extends State<_PeerCard>
             : Icon(Icons.check_box_outline_blank),
       );
     } else {
-      return InkWell(
-          child: const Padding(
-              padding: EdgeInsets.all(12), child: Icon(Icons.more_vert)),
-          onTapDown: (e) {
-            final x = e.globalPosition.dx;
-            final y = e.globalPosition.dy;
-            _menuPos = RelativeRect.fromLTRB(x, y, x, y);
-          },
-          onTap: () {
-            _showPeerMenu(peer.id);
-          });
+      // 蓝鲸银河 §2.1.B：离线卡不降整卡透明度，仅弱化状态与快捷操作。
+      return _dimActionIfOffline(
+          peer,
+          InkWell(
+              child: const Padding(
+                  padding: EdgeInsets.all(12), child: Icon(Icons.more_vert)),
+              onTapDown: (e) {
+                final x = e.globalPosition.dx;
+                final y = e.globalPosition.dy;
+                _menuPos = RelativeRect.fromLTRB(x, y, x, y);
+              },
+              onTap: () {
+                _showPeerMenu(peer.id);
+              }));
     }
   }
 
@@ -469,9 +541,17 @@ class _PeerCardState extends State<_PeerCard>
         return icon.marginOnly(right: right);
       }
     } else {
-      return _actionMore(peer);
+      // 蓝鲸银河 §2.1.B：离线卡不降整卡透明度，仅弱化状态与快捷操作。
+      return _dimActionIfOffline(peer, _actionMore(peer));
     }
   }
+
+  /// 蓝鲸银河 §2.1.B：离线设备不降低整卡透明度，仅将快捷操作（更多菜单
+  /// 按钮）降至 0.5 透明度（与 build_more 非 hover 图标透明度对齐）；在线
+  /// 设备原样返回。状态侧的弱化由 RadarStatusDot 的 offline 空心中性圆环
+  /// （规范 §3.11）承担。多选模式 checkbox 属选择态 UI，不做弱化。
+  Widget _dimActionIfOffline(Peer peer, Widget action) =>
+      peer.online ? action : Opacity(opacity: 0.5, child: action);
 
   Widget _actionMore(Peer peer) => Listener(
       onPointerDown: (e) {
@@ -788,14 +868,14 @@ abstract class BasePeerCard extends StatelessWidget {
         children: [
           Text(
             translate('Delete'),
-            style: style?.copyWith(color: Colors.red),
+            style: style?.copyWith(color: MyTheme.danger),
           ),
           Expanded(
               child: Align(
             alignment: Alignment.centerRight,
             child: Transform.scale(
               scale: 0.8,
-              child: Icon(Icons.delete_forever, color: Colors.red),
+              child: Icon(Icons.delete_forever, color: MyTheme.danger),
             ),
           ).marginOnly(right: 4)),
         ],
@@ -852,7 +932,7 @@ abstract class BasePeerCard extends StatelessWidget {
         } else {
           if (tab.index == PeerTabIndex.ab.index) {
             BotToast.showText(
-                contentColor: Colors.red, text: translate("Failed"));
+                contentColor: MyTheme.danger, text: translate("Failed"));
           }
         }
       },
@@ -1470,8 +1550,39 @@ Widget getOnline(double rightPadding, bool online) {
       waitDuration: const Duration(seconds: 1),
       child: Padding(
           padding: EdgeInsets.fromLTRB(0, 4, rightPadding, 4),
-          child: CircleAvatar(
-              radius: 3, backgroundColor: online ? Colors.green : kColorWarn)));
+          // 蓝鲸银河 §3.11 / §2.1.B：雷达节点状态点。离线 = 空心中性圆环
+          // （Neutral 400，静止），在线 = 在线语义色圆环 + 中心点 + 1.5s
+          // 呼吸脉冲；8px small 高密度档，盒尺寸与原圆点位接近可原位替换；
+          // 系统 reduced-motion 时在组件内部自动降级为静止 dot。
+          // 函数签名 (double, bool) 保持不变，本文件两处调用与
+          // autocomplete.dart 的既有调用零改动接入。
+          child: RadarStatusDot.online(
+            online: online,
+            size: RadarDotSize.small,
+          )));
+}
+
+/// 蓝鲸银河 §2.1.B「Parsec 式状态权重」：设备卡列表排序辅助。
+///
+/// 权重越大排越前：
+///   2 = 在线且 60s 内有活跃；
+///   1 = 在线（无活跃数据，或距上次活跃超过 60s）；
+///   0 = 离线（排尾）。
+///
+/// 排序逻辑位于 peers_view / peer_tab_page，超出本文件范围，不越界改动；
+/// 接入方在排序处调用（降序）：
+///   peers.sort((a, b) =>
+///       peerAvailabilityWeight(b).compareTo(peerAvailabilityWeight(a)));
+///
+/// 现有 Peer 模型仅有 online 布尔、尚无活跃时间字段；[lastActive] 为模型
+/// 扩展预留，当前不传时在线 = 1、离线 = 0，已满足「在线排前、离线排尾」。
+/// 纯函数、无平台依赖，桌面 / 移动 / Web 三端安全。
+int peerAvailabilityWeight(Peer peer, {DateTime? lastActive, DateTime? now}) {
+  if (!peer.online) return 0;
+  final DateTime? activeAt = lastActive;
+  if (activeAt == null) return 1;
+  final DateTime ref = now ?? DateTime.now();
+  return ref.difference(activeAt).inSeconds <= 60 ? 2 : 1;
 }
 
 Widget build_more(BuildContext context, {bool invert = false}) {
