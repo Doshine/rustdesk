@@ -17,23 +17,25 @@
 # therefore CRLF-safe.
 set -euo pipefail
 
-# ThemeData API renames (Flutter 3.27+):
-sed -i 's/dialogTheme: DialogTheme(/dialogTheme: DialogThemeData(/g' flutter/lib/common.dart
-sed -i 's/tabBarTheme: const TabBarTheme(/tabBarTheme: const TabBarThemeData(/g' flutter/lib/common.dart
+# ThemeData API renames (Flutter 3.27+). The theme definitions live in the
+# branded app_theme.dart module after the Phase 3 UI refactor.
+theme_file='flutter/lib/theme/app_theme.dart'
+sed -i 's/dialogTheme: DialogTheme(/dialogTheme: DialogThemeData(/g' "$theme_file"
+sed -i 's/tabBarTheme: const TabBarTheme(/tabBarTheme: const TabBarThemeData(/g' "$theme_file"
 sed -i '/static ThemeData lightTheme = ThemeData(/,/static ThemeData darkTheme = ThemeData(/s/dialogTheme: DialogThemeData(/dialogTheme: DialogThemeData(\
-      backgroundColor: Colors.white,/' flutter/lib/common.dart
+      backgroundColor: Colors.white,/' "$theme_file"
 sed -i '/static ThemeData darkTheme = ThemeData(/,/scrollbarTheme: scrollbarThemeDark,/s/dialogTheme: DialogThemeData(/dialogTheme: DialogThemeData(\
-      backgroundColor: Color(0xFF18191E),/' flutter/lib/common.dart
+      backgroundColor: Color(0xFF18191E),/' "$theme_file"
 # Dependency bumps required by the newer Dart/Flutter:
 sed -i 's/extended_text: 14.0.0/extended_text: 15.0.2/' flutter/pubspec.yaml
 sed -i 's/google_fonts: \^6.2.1/google_fonts: ^8.1.0/' flutter/pubspec.yaml
 
 # Fail loudly if any expected string drifted, so we never silently build unpatched:
-grep -qF 'dialogTheme: DialogThemeData(' flutter/lib/common.dart
-grep -qF 'tabBarTheme: const TabBarThemeData(' flutter/lib/common.dart
-grep -qF 'backgroundColor: Colors.white,' flutter/lib/common.dart
-grep -qF 'backgroundColor: Color(0xFF18191E),' flutter/lib/common.dart
+grep -qF 'dialogTheme: DialogThemeData(' "$theme_file"
+grep -qF 'tabBarTheme: const TabBarThemeData(' "$theme_file"
+grep -qF 'backgroundColor: Colors.white,' "$theme_file"
+grep -qF 'backgroundColor: Color(0xFF18191E),' "$theme_file"
 grep -qF 'extended_text: 15.0.2' flutter/pubspec.yaml
 grep -qF 'google_fonts: ^8.1.0' flutter/pubspec.yaml
 
-git --no-pager diff -- flutter/lib/common.dart flutter/pubspec.yaml
+git --no-pager diff -- "$theme_file" flutter/pubspec.yaml
