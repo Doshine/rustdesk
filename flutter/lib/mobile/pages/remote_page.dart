@@ -21,6 +21,7 @@ import '../../common/widgets/remote_input.dart';
 import '../../models/input_model.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
+import '../../theme/yinhe_tokens.dart';
 import '../../utils/image.dart';
 import '../widgets/dialog.dart';
 import '../widgets/custom_scale_widget.dart';
@@ -595,8 +596,7 @@ class _RemotePageState extends State<RemotePage> with WidgetsBindingObserver {
     );
   }
 
-  // 蓝鲸银河 v2.1 token：深空 surface（WS0-2 产物 yinhe_tokens.dart 落地后应替换为 token 引用）
-  static const Color _yinheSurface = Color(0xFF141B2A);
+  static const Color _yinheSurface = YinheColors.surfaceDark;
 
   /// 工具栏入口按钮，触控区 ≥48px（规范 v2.1 §2.2.C）
   Widget _barEntry(

@@ -5,6 +5,19 @@ on:
     # schedule build every night
   #  - cron: "0/6 * * * *"
   workflow_dispatch:
+    inputs:
+      upload-artifact:
+        description: Publish generated artifacts
+        type: boolean
+        default: false
+      enable-legacy-vcpkg:
+        description: Run disabled legacy vcpkg experiments
+        type: boolean
+        default: false
+      enable-android:
+        description: Run the playground Android release job
+        type: boolean
+        default: false
 
 env:
   RUST_VERSION: "1.75" # https://github.com/rustdesk/rustdesk/discussions/7503
@@ -166,13 +179,13 @@ jobs:
           
       - name: Restore from cache and install vcpkg
         uses: lukka/run-vcpkg@8a5116de2b552d6fc8894e9774aacaf2e5db4823 # v7 2026-05-26
-        if: false
+        if: ${{ inputs.enable-legacy-vcpkg }}
         with:
           setupOnly: true
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
 
       - name: Install vcpkg dependencies
-        if: false
+        if: ${{ inputs.enable-legacy-vcpkg }}
         run: |
           $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom
 
@@ -231,7 +244,7 @@ jobs:
 
 
   build-rustdesk-android:
-    if: false
+    if: ${{ inputs.enable-android }}
     name: build rustdesk android apk ${{ matrix.job.target }}
     runs-on: ${{ matrix.job.os }}
     strategy:
@@ -251,6 +264,19 @@ jobs:
         with:
           ref: ${{ matrix.job.ref }}
           submodules: recursive
+
+      - name: Require production Android signing secrets
+        shell: bash
+        env:
+          SIGNING_KEY: ${{ secrets.ANDROID_SIGNING_KEY }}
+          SIGNING_ALIAS: ${{ secrets.ANDROID_ALIAS }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEY_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$SIGNING_KEY"
+          test -n "$SIGNING_ALIAS"
+          test -n "$STORE_PASSWORD"
+          test -n "$KEY_PASSWORD"
 
       - name: Install dependencies
         run: |
@@ -369,8 +395,8 @@ jobs:
           JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
         run: |
           export PATH=/usr/lib/jvm/java-11-openjdk-amd64/bin:$PATH
-          # temporary use debug sign config
-          sed -i "s/signingConfigs.release/signingConfigs.debug/g" ./flutter/android/app/build.gradle
+          # Build unsigned; the mandatory next step applies the production signature.
+          sed -i '/signingConfig signingConfigs.release/d' ./flutter/android/app/build.gradle
           case ${{ matrix.job.target }} in
             aarch64-linux-android)
               mkdir -p ./flutter/android/app/src/main/jniLibs/arm64-v8a
@@ -393,11 +419,10 @@ jobs:
           esac
           popd
           mkdir -p signed-apk; pushd signed-apk
-          mv ../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.apk ./rustdesk-test-${{ matrix.job.ref }}-${{ matrix.job.ndk }}.apk
+          mv ../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.apk ./rustdesk-test-${{ matrix.job.ref }}-${{ env.NDK_VERSION }}.apk
 
       - uses: r0adkll/sign-android-release@349ebdef58775b1e0d8099458af0816dc79b6407 # v1
         name: Sign app APK
-        if: env.ANDROID_SIGNING_KEY != null
         id: sign-rustdesk
         with:
           releaseDirectory: ./signed-apk
@@ -408,6 +433,15 @@ jobs:
         env:
           # override default build-tools version (29.0.3) -- optional
           BUILD_TOOLS_VERSION: "30.0.2"
+
+      - name: Verify production signature
+        shell: bash
+        run: |
+          apksigner verify --verbose --print-certs "${{ steps.sign-rustdesk.outputs.signedReleaseFile }}"
+          if apksigner verify --print-certs "${{ steps.sign-rustdesk.outputs.signedReleaseFile }}" | grep -qi 'Android Debug'; then
+            echo 'Debug signing certificate is forbidden' >&2
+            exit 1
+          fi
 
       - name: Publish signed apk package
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1

@@ -144,8 +144,8 @@ enum _StageStatus { pending, active, done, failed }
 /// 不改动任何连接逻辑 / FFI。
 ///
 /// 四阶段按真实协议顺序：连接中继 → 安全协商 → 身份验证 → 建立画面（§2.1.B）。
-/// 连接仪式感三段式：鲸鱼尾摆描边轨迹（1.2s 循环渐变描边）→ Logo 位淡入
-/// （200ms）→ 成功确认脉冲（#39C894 深 / #167C59 浅，1.4s 两圈，单次播放，
+/// 连接仪式感三段式：鲸鱼尾摆描边轨迹（420ms 段间过渡）→ Logo 位淡入
+/// （200ms）→ 成功确认脉冲（#39C894 深 / #167C59 浅，400ms 两圈，单次播放，
 /// 点击或任意键可跳过）。`MediaQuery.disableAnimations`（Flutter 侧
 /// reduced-motion 等价能力，由 WidgetsBinding 平台无障碍特性映射）开启时
 /// 全部降级为静态阶段列表 + 静态「已连接」标识。
@@ -194,14 +194,14 @@ class ConnectingStageCard extends StatefulWidget {
 }
 
 class _ConnectingStageCardState extends State<ConnectingStageCard>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   /// 当前阶段呼吸指示（Motion Ambient 1.5s，承担 spinner 角色）。
   late final AnimationController _breathController;
 
-  /// 鲸鱼尾摆轨迹描边（1.2s 循环，连接轨迹允许路径描边动画 —— §1.5）。
+  /// 鲸鱼尾摆轨迹描边（Motion Collapse 420ms，连接轨迹允许路径描边动画 —— §1.5）。
   late final AnimationController _trailController;
 
-  /// 成功确认脉冲（1.4s 两圈，单次播放后静止）。
+  /// 成功确认脉冲（400ms 两圈，单次播放后静止）。
   late final AnimationController _pulseController;
 
   Worker? _stageWorker;
@@ -221,11 +221,11 @@ class _ConnectingStageCardState extends State<ConnectingStageCard>
     );
     _trailController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1200), // 轨迹描边 1.2s 循环
+      duration: YinheMotion.collapse,
     );
     _pulseController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1400), // 确认脉冲 1.4s 两圈
+      duration: YinheMotion.successPulse,
     );
     _stageWorker = ever<int>(widget.stage, (s) {
       if (s >= _lastStage) _startConfirmPulse();
@@ -711,7 +711,7 @@ class _ConnectingStageCardState extends State<ConnectingStageCard>
 }
 
 /// 鲸鱼尾摆连接轨迹（仪式三段式之一）：圆角 S 形路径 + 蓝青两段渐变描边，
-/// 1.2s 循环单向描边动画；reduced-motion 时 [progress] 固定为 1.0，
+/// 420ms 循环单向描边动画；reduced-motion 时 [progress] 固定为 1.0，
 /// 只保留静态低亮轨迹（退化为静态阶段列表 —— §1.5 降级）。
 class _WhaleTrailPainter extends CustomPainter {
   final double progress;
@@ -769,7 +769,7 @@ class _WhaleTrailPainter extends CustomPainter {
 }
 
 /// 成功确认脉冲（仪式三段式之三）：成功色 #39C894（深色）/ #167C59（浅色），
-/// 1.4s 内两圈扩散后静止，单次播放。
+/// 400ms 内两圈扩散后静止，单次播放。
 class _ConfirmPulsePainter extends CustomPainter {
   final double progress;
   final Offset center;

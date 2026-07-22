@@ -564,68 +564,161 @@ class QualityMonitor extends StatelessWidget {
 
   // Delay color tiers from design tokens (quality.*): <50ms good,
   // <120ms fair, otherwise poor; neutral.dark.textTertiary when no data.
-  static Color _delayColor(String? delay, String? fps) {
-    const noDataColor = Color(0xFF6B7280);
-    if (delay == null) return noDataColor;
-    // keep consistent with the displayed value below: 0 when fps is empty/0
-    final noFrames =
-        (fps ?? '').replaceAll(' ', '').replaceAll('0', '').isEmpty;
-    final ms = noFrames ? 0 : int.tryParse(delay);
-    if (ms == null) return noDataColor;
-    if (ms < 50) return const Color(0xFF22C55E);
-    if (ms < 120) return const Color(0xFFF59E0B);
-    return const Color(0xFFEF4444);
+  static int? _delayMs(String? delay) =>
+      delay == null ? null : int.tryParse(delay);
+
+  static Color _delayColor(int? delayMs) {
+    if (delayMs == null) return YinheColors.qualityOfflineDark;
+    if (delayMs < 50) return YinheColors.qualityGoodDark;
+    if (delayMs < 120) return YinheColors.qualityFairDark;
+    return YinheColors.qualityPoorDark;
+  }
+
+  Widget _signalBars(int? delayMs) {
+    final activeBars = delayMs == null
+        ? 0
+        : delayMs < 50
+        ? 4
+        : delayMs < 120
+        ? 3
+        : 1;
+    final color = _delayColor(delayMs);
+    const heights = <double>[5, 8, 11, 14];
+    return Semantics(
+      label: '${translate('Delay')} ${delayMs == null ? '—' : '${delayMs}ms'}',
+      child: SizedBox(
+        width: 21,
+        height: 15,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: List.generate(4, (index) {
+            return Container(
+              width: 3,
+              height: heights[index],
+              decoration: BoxDecoration(
+                color: index < activeBars ? color : YinheColors.neutral700,
+                borderRadius: BorderRadius.circular(1),
+              ),
+            );
+          }),
+        ),
+      ),
+    );
   }
 
   Widget _row(String info, String? value, {Color? rightColor}) {
-    return Row(
-      children: [
-        Expanded(
-            flex: 8,
-            child: AutoSizeText(info,
-                style: TextStyle(color: Color.fromARGB(255, 210, 210, 210)),
-                textAlign: TextAlign.right,
-                maxLines: 1)),
-        Spacer(flex: 1),
-        Expanded(
-            flex: 8,
-            child: AutoSizeText(value ?? '',
-                style: TextStyle(color: rightColor ?? Colors.white),
-                maxLines: 1)),
-      ],
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Expanded(
+            child: AutoSizeText(
+              info,
+              style: const TextStyle(
+                fontSize: 11,
+                height: 16 / 11,
+                color: YinheColors.textTertiaryDark,
+              ),
+              maxLines: 1,
+            ),
+          ),
+          const SizedBox(width: YinheSpacing.s12),
+          AutoSizeText(
+            value ?? '—',
+            textAlign: TextAlign.right,
+            style: YinheFonts.numeric(
+              fontSize: 11,
+              height: 16,
+              fontWeight: FontWeight.w600,
+              color: rightColor ?? YinheColors.textPrimaryDark,
+            ),
+            maxLines: 1,
+          ),
+        ],
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) => ChangeNotifierProvider.value(
-      value: qualityMonitorModel,
-      child: Consumer<QualityMonitorModel>(
-          builder: (context, qualityMonitorModel, child) => qualityMonitorModel
-                  .show
-              ? Container(
-                  constraints: BoxConstraints(maxWidth: 200),
-                  padding: const EdgeInsets.all(8),
-                  color: MyTheme.canvasColor.withAlpha(150),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _row("Speed", qualityMonitorModel.data.speed ?? '-'),
-                      _row("FPS", qualityMonitorModel.data.fps ?? '-'),
-                      // let delay be 0 if fps is 0
-                      _row(
-                          "Delay",
-                          "${qualityMonitorModel.data.delay == null ? '-' : (qualityMonitorModel.data.fps ?? "").replaceAll(' ', '').replaceAll('0', '').isEmpty ? 0 : qualityMonitorModel.data.delay}ms",
-                          rightColor: _delayColor(qualityMonitorModel.data.delay,
-                              qualityMonitorModel.data.fps)),
-                      _row("Target Bitrate",
-                          "${qualityMonitorModel.data.targetBitrate ?? '-'}kb"),
-                      _row(
-                          "Codec", qualityMonitorModel.data.codecFormat ?? '-'),
-                      _row("Chroma", qualityMonitorModel.data.chroma ?? '-'),
-                    ],
+    value: qualityMonitorModel,
+    child: Consumer<QualityMonitorModel>(
+      builder: (context, qualityMonitorModel, child) {
+        if (!qualityMonitorModel.show) return const SizedBox.shrink();
+        final data = qualityMonitorModel.data;
+        final delayMs = _delayMs(data.delay);
+        final poor = delayMs != null && delayMs >= 120;
+        return Container(
+          constraints: const BoxConstraints(maxWidth: 220),
+          padding: const EdgeInsets.all(YinheSpacing.s12),
+          decoration: BoxDecoration(
+            color: YinheColors.sessionToolbarBg,
+            borderRadius: BorderRadius.circular(YinheRadius.control),
+            border: Border(
+              left: BorderSide(
+                color: poor
+                    ? YinheColors.qualityPoorDark
+                    : YinheColors.sessionToolbarBorder,
+                width: poor ? 3 : 1,
+              ),
+              top: const BorderSide(color: YinheColors.sessionToolbarBorder),
+              right: const BorderSide(color: YinheColors.sessionToolbarBorder),
+              bottom: const BorderSide(color: YinheColors.sessionToolbarBorder),
+            ),
+            boxShadow: YinheElevation.elev2Dark,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  _signalBars(delayMs),
+                  const SizedBox(width: YinheSpacing.s8),
+                  Expanded(
+                    child: Text(
+                      translate('Show quality monitor'),
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        height: 18 / 12,
+                        fontWeight: FontWeight.w600,
+                        color: YinheColors.textPrimaryDark,
+                      ),
+                    ),
                   ),
-                )
-              : const SizedBox.shrink()));
+                  if (poor)
+                    const Icon(
+                      Icons.warning_amber_rounded,
+                      size: 16,
+                      color: YinheColors.qualityPoorDark,
+                    ),
+                ],
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: YinheSpacing.s8),
+                child: Divider(height: 1, color: YinheColors.dividerDark),
+              ),
+              _row(
+                translate('Delay'),
+                delayMs == null ? '—' : '${delayMs}ms',
+                rightColor: _delayColor(delayMs),
+              ),
+              _row('FPS', data.fps),
+              _row(translate('Speed'), data.speed),
+              _row(
+                translate('Bitrate'),
+                data.targetBitrate == null ? '—' : '${data.targetBitrate}kb',
+              ),
+              _row(translate('Codec'), data.codecFormat),
+              _row('Chroma', data.chroma),
+            ],
+          ),
+        );
+      },
+    ),
+  );
 }
 
 class BlockableOverlayState extends OverlayKeyState {
