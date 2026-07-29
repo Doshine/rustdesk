@@ -237,7 +237,8 @@ class UserModel {
 
   /// Login with [phone] and SMS [code].
   /// throw [RequestException]
-  Future<LoginResponse> loginSms(String phone, String code) async {
+  Future<LoginResponse> loginSms(String phone, String code,
+      {String? mfaCode}) async {
     final url = await bind.mainGetApiServer();
     Map<String, dynamic> deviceInfo = {};
     try {
@@ -252,6 +253,7 @@ class UserModel {
           'id': await bind.mainGetMyId(),
           'uuid': await bind.mainGetUuid(),
           'deviceInfo': deviceInfo,
+          if (mfaCode != null && mfaCode.isNotEmpty) 'mfa_code': mfaCode,
         }));
 
     final Map<String, dynamic> body;
@@ -273,6 +275,60 @@ class UserModel {
     }
 
     return getLoginResponseFromAuthBody(body);
+  }
+
+  /// 取回首次强制绑定 MFA 的设置材料（密钥 / otpauth 链接 / 一次性备份码）。
+  /// [challenge] 来自登录响应的 mfa_enrollment_challenge，有效期 10 分钟。
+  /// throw [RequestException]
+  Future<MfaEnrollment> mfaBootstrapBegin(String challenge) async {
+    final url = await bind.mainGetApiServer();
+    final resp = await http.post(Uri.parse('$url/api/mfa/bootstrap/begin'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'challenge': challenge}));
+    final body = _decodeJsonBody(resp, 'mfaBootstrapBegin');
+    if (resp.statusCode != 200) {
+      throw RequestException(resp.statusCode, body['error'] ?? '');
+    }
+    if (body['error'] != null) {
+      throw RequestException(0, body['error']);
+    }
+    final data = body['data'];
+    if (data is! Map || data['enrollment'] is! Map) {
+      throw RequestException(0, 'MfaEnrollmentExpired');
+    }
+    return MfaEnrollment.fromJson(
+        Map<String, dynamic>.from(data['enrollment'] as Map));
+  }
+
+  /// 用验证器产生的首个 6 位动态码完成绑定；成功后服务端直接签发会话。
+  /// throw [RequestException]
+  Future<LoginResponse> mfaBootstrapComplete(
+      String challenge, String code) async {
+    final url = await bind.mainGetApiServer();
+    final resp = await http.post(Uri.parse('$url/api/mfa/bootstrap/complete'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'challenge': challenge, 'code': code}));
+    final body = _decodeJsonBody(resp, 'mfaBootstrapComplete');
+    if (resp.statusCode != 200) {
+      throw RequestException(resp.statusCode, body['error'] ?? '');
+    }
+    if (body['error'] != null) {
+      throw RequestException(0, body['error']);
+    }
+    return getLoginResponseFromAuthBody(body);
+  }
+
+  Map<String, dynamic> _decodeJsonBody(http.Response resp, String tag) {
+    try {
+      return jsonDecode(decode_http_response(resp));
+    } catch (e) {
+      debugPrint("$tag: jsonDecode resp body failed: ${e.toString()}");
+      if (resp.statusCode != 200) {
+        BotToast.showText(
+            contentColor: Colors.red, text: 'HTTP ${resp.statusCode}');
+      }
+      rethrow;
+    }
   }
 
   LoginResponse getLoginResponseFromAuthBody(Map<String, dynamic> body) {

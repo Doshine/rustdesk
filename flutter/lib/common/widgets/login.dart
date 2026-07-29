@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common/hbbs/hbbs.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/user_model.dart';
@@ -381,11 +382,36 @@ class LoginWidgetOP extends StatelessWidget {
   }
 }
 
+// 动态码输入框。服务端在 MFA 码错误时只返回本地化后的错误文案，客户端无法
+// 可靠区分"密码错"与"需要动态码"，因此与管理后台一致：输入框常驻且可留空，
+// 未启用 MFA 的账号不受影响。
+class MfaCodeField extends StatelessWidget {
+  final TextEditingController controller;
+  final String? errorText;
+  const MfaCodeField({Key? key, required this.controller, this.errorText})
+      : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return DialogTextField(
+      title: translate('MFA Code'),
+      controller: controller,
+      prefixIcon: const Icon(Icons.verified_user_outlined),
+      keyboardType: TextInputType.text,
+      maxLength: 10,
+      errorText: errorText,
+      helperText: translate('mfa_code_tip'),
+    );
+  }
+}
+
 class LoginWidgetUserPass extends StatelessWidget {
   final TextEditingController username;
   final TextEditingController pass;
+  final TextEditingController mfaCode;
   final String? usernameMsg;
   final String? passMsg;
+  final String? mfaMsg;
   final bool isInProgress;
   final RxString curOP;
   final Function() onLogin;
@@ -395,8 +421,10 @@ class LoginWidgetUserPass extends StatelessWidget {
     this.userFocusNode,
     required this.username,
     required this.pass,
+    required this.mfaCode,
     required this.usernameMsg,
     required this.passMsg,
+    required this.mfaMsg,
     required this.isInProgress,
     required this.curOP,
     required this.onLogin,
@@ -422,6 +450,7 @@ class LoginWidgetUserPass extends StatelessWidget {
               reRequestFocus: true,
               errorText: passMsg,
             ),
+            MfaCodeField(controller: mfaCode, errorText: mfaMsg),
             // NOT use Offstage to wrap LinearProgressIndicator
             if (isInProgress) const LinearProgressIndicator(),
             const SizedBox(height: 12.0),
@@ -516,8 +545,10 @@ class _LoginMethodTabs extends StatelessWidget {
 class LoginWidgetSms extends StatefulWidget {
   final TextEditingController phone;
   final TextEditingController code;
+  final TextEditingController mfaCode;
   final String? phoneMsg;
   final String? codeMsg;
+  final String? mfaMsg;
   final bool isInProgress;
   // Returns true if the code was sent successfully (starts the countdown).
   final Future<bool> Function() onSendCode;
@@ -527,8 +558,10 @@ class LoginWidgetSms extends StatefulWidget {
     Key? key,
     required this.phone,
     required this.code,
+    required this.mfaCode,
     required this.phoneMsg,
     required this.codeMsg,
+    required this.mfaMsg,
     required this.isInProgress,
     required this.onSendCode,
     required this.onLogin,
@@ -618,6 +651,7 @@ class _LoginWidgetSmsState extends State<LoginWidgetSms> {
               ),
             ],
           ),
+          MfaCodeField(controller: widget.mfaCode, errorText: widget.mfaMsg),
           // NOT use Offstage to wrap LinearProgressIndicator
           if (widget.isInProgress) const LinearProgressIndicator(),
           const SizedBox(height: 12.0),
@@ -656,6 +690,12 @@ Future<bool?> loginDialog() async {
   final RxString curOP = ''.obs;
   // Track hover state for the close icon
   bool isCloseHovered = false;
+
+  // MFA (TOTP / backup code). Optional per tab; empty for accounts without MFA.
+  var mfaCode = TextEditingController();
+  var smsMfaCode = TextEditingController();
+  String? mfaMsg;
+  String? smsMfaMsg;
 
   // SMS login tab state
   var phone = TextEditingController();
@@ -708,6 +748,24 @@ Future<bool?> loginDialog() async {
 
     handleLoginResponse(LoginResponse resp, bool storeIfAccessToken,
         void Function([dynamic])? close) async {
+      // 管理员策略强制 MFA 但账号尚未绑定：服务端不签发会话，只给出一次性
+      // 注册挑战。必须在这里引导完成绑定，否则用户会卡在登录页且没有任何提示。
+      if (resp.mfaEnrollmentRequired) {
+        final challenge = resp.mfaEnrollmentChallenge;
+        if (challenge == null || challenge.isEmpty) {
+          passwordMsg = translate('mfa_challenge_expired');
+          return;
+        }
+        setState(() => isInProgress = false);
+        // 与下方 verificationCodeDialog 的处理保持一致：Web 端必须先关闭当前
+        // 对话框，否则新对话框的输入框会一直重选文本、无法输入。
+        if (isWeb && close != null) close(null);
+        final ok = await mfaEnrollmentDialog(challenge);
+        if (ok == true && !isWeb && close != null) {
+          close(true);
+        }
+        return;
+      }
       switch (resp.type) {
         case HttpType.kAuthResTypeToken:
           if (resp.access_token != null) {
@@ -778,6 +836,7 @@ Future<bool?> loginDialog() async {
             id: await bind.mainGetMyId(),
             uuid: await bind.mainGetUuid(),
             autoLogin: true,
+            mfaCode: mfaCode.text.trim(),
             type: HttpType.kAuthReqTypeAccount));
         await handleLoginResponse(resp, true, close);
       } on RequestException catch (err) {
@@ -819,7 +878,8 @@ Future<bool?> loginDialog() async {
       }
       setState(() => smsInProgress = true);
       try {
-        final resp = await gFFI.userModel.loginSms(text, smsCode.text.trim());
+        final resp = await gFFI.userModel
+            .loginSms(text, smsCode.text.trim(), mfaCode: smsMfaCode.text.trim());
         await handleLoginResponse(resp, true, close);
       } on RequestException catch (err) {
         showToast(translate(err.cause));
@@ -926,8 +986,10 @@ Future<bool?> loginDialog() async {
               LoginWidgetUserPass(
                 username: username,
                 pass: password,
+                mfaCode: mfaCode,
                 usernameMsg: usernameMsg,
                 passMsg: passwordMsg,
+                mfaMsg: mfaMsg,
                 isInProgress: isInProgress,
                 curOP: curOP,
                 onLogin: onLogin,
@@ -936,8 +998,10 @@ Future<bool?> loginDialog() async {
               LoginWidgetSms(
                 phone: phone,
                 code: smsCode,
+                mfaCode: smsMfaCode,
                 phoneMsg: phoneMsg,
                 codeMsg: codeMsg,
+                mfaMsg: smsMfaMsg,
                 isInProgress: smsInProgress,
                 onSendCode: onSendSmsCode,
                 onLogin: onSmsLogin,
@@ -963,6 +1027,143 @@ Future<bool?> loginDialog() async {
   }
 
   return res;
+}
+
+/// 首次强制绑定 MFA 的引导。当管理员策略要求 MFA 而账号尚未绑定时，
+/// 登录接口只返回一次性挑战、不签发会话，必须走完本流程才能拿到 token。
+/// 挑战有效期 10 分钟、最多 5 次错误（见 rustdesk-api service/mfa.go）。
+Future<bool?> mfaEnrollmentDialog(String challenge) async {
+  final MfaEnrollment enrollment;
+  try {
+    enrollment = await gFFI.userModel.mfaBootstrapBegin(challenge);
+  } on RequestException catch (err) {
+    showToast(translate(err.cause));
+    return false;
+  } catch (err) {
+    showToast('Unknown Error: $err');
+    return false;
+  }
+
+  var code = TextEditingController();
+  String? codeMsg;
+  var isInProgress = false;
+  var backupSaved = false;
+
+  copyField(String label, String value) => Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: SelectableText(
+              value,
+              style: const TextStyle(fontSize: 13, fontFamily: 'monospace'),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.copy, size: 18),
+            tooltip: translate('Copy'),
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: value));
+              showToast(translate('Copied'));
+            },
+          ),
+        ],
+      );
+
+  return await gFFI.dialogManager.show<bool>((setState, close, context) {
+    code.addListener(() {
+      if (codeMsg != null) setState(() => codeMsg = null);
+    });
+
+    onSubmit() async {
+      final text = code.text.trim();
+      if (text.length != 6) {
+        setState(() => codeMsg = translate('mfa_enroll_code_len_tip'));
+        return;
+      }
+      if (!backupSaved) {
+        setState(() => codeMsg = translate('mfa_backup_confirm_tip'));
+        return;
+      }
+      setState(() => isInProgress = true);
+      try {
+        final resp =
+            await gFFI.userModel.mfaBootstrapComplete(challenge, text);
+        if (resp.access_token != null) {
+          await bind.mainSetLocalOption(
+              key: 'access_token', value: resp.access_token!);
+          await bind.mainSetLocalOption(
+              key: 'user_info', value: jsonEncode(resp.user ?? {}));
+          close(true);
+          return;
+        }
+        setState(() => codeMsg = translate('Failed'));
+      } on RequestException catch (err) {
+        setState(() => codeMsg = translate(err.cause));
+      } catch (err) {
+        setState(() => codeMsg = 'Unknown Error: $err');
+      }
+      setState(() => isInProgress = false);
+    }
+
+    return CustomAlertDialog(
+      title: Text(translate('Set up MFA')),
+      contentBoxConstraints: BoxConstraints(minWidth: 400, maxWidth: 460),
+      content: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(translate('mfa_enroll_intro'),
+              style: const TextStyle(fontSize: 13)),
+          const SizedBox(height: 12),
+          Text(translate('mfa_secret_label'),
+              style: const TextStyle(fontWeight: FontWeight.w600)),
+          copyField('secret', enrollment.secret),
+          if (enrollment.otpauthUrl.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(translate('mfa_otpauth_label'),
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+            copyField('otpauth', enrollment.otpauthUrl),
+          ],
+          if (enrollment.backupCodes.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(translate('mfa_backup_label'),
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+            Text(translate('mfa_backup_tip'),
+                style: const TextStyle(fontSize: 12, color: Colors.orange)),
+            const SizedBox(height: 4),
+            copyField('backup', enrollment.backupCodes.join('  ')),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              dense: true,
+              value: backupSaved,
+              onChanged: (v) => setState(() => backupSaved = v ?? false),
+              title: Text(translate('mfa_backup_saved'),
+                  style: const TextStyle(fontSize: 13)),
+            ),
+          ] else
+            // 没有备份码时不应把用户卡在勾选项上
+            const SizedBox.shrink(),
+          const SizedBox(height: 4),
+          DialogTextField(
+            title: translate('mfa_first_code'),
+            controller: code,
+            prefixIcon: const Icon(Icons.verified_user_outlined),
+            keyboardType: TextInputType.number,
+            maxLength: 6,
+            errorText: codeMsg,
+          ),
+          if (isInProgress) const LinearProgressIndicator(),
+        ],
+      ),
+      onCancel: () => close(false),
+      onSubmit: onSubmit,
+      actions: [
+        dialogButton('Cancel', onPressed: () => close(false), isOutline: true),
+        dialogButton('OK', onPressed: isInProgress ? null : onSubmit),
+      ],
+    );
+  });
 }
 
 Future<bool?> verificationCodeDialog(

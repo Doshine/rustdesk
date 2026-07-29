@@ -1,6 +1,20 @@
 lazy_static::lazy_static! {
 pub static ref T: std::collections::HashMap<&'static str, &'static str> =
     [
+        ("MFA Code", "动态验证码"),
+        ("mfa_code_tip", "已启用两步验证的账号必填：6 位动态码或 10 位备份码；未启用可留空"),
+        ("Set up MFA", "设置两步验证"),
+        ("mfa_enroll_intro", "管理员已要求本账号启用两步验证。请用验证器应用扫描或手动添加下方密钥，再输入首个动态码完成绑定。"),
+        ("mfa_secret_label", "手动添加密钥"),
+        ("mfa_otpauth_label", "otpauth 链接"),
+        ("mfa_backup_label", "一次性备份码"),
+        ("mfa_backup_tip", "备份码只显示这一次，请立即离线保存。验证器丢失时它是唯一的登录方式。"),
+        ("mfa_backup_saved", "我已保存备份码"),
+        ("mfa_first_code", "验证器上的 6 位动态码"),
+        ("mfa_enroll_code_len_tip", "请输入 6 位动态码"),
+        ("mfa_backup_confirm_tip", "请先确认已保存备份码"),
+        ("mfa_challenge_expired", "绑定会话已过期，请重新登录"),
+        ("Copy", "复制"),
         ("Status", "状态"),
         ("Your Desktop", "你的桌面"),
         ("desk_tip", "你的桌面可以通过下面的 ID 和密码访问。"),

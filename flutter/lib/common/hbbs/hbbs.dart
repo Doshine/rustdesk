@@ -140,6 +140,9 @@ class LoginRequest {
   String? verificationCode;
   String? tfaCode;
   String? secret;
+  // 蓝鲸银河 API 的 TOTP/备份码字段（服务端 http/request/api/user.go 的 mfa_code）。
+  // 与上游 RustDesk Pro 的 tfaCode 是两套独立机制，不能混用。
+  String? mfaCode;
 
   LoginRequest(
       {this.username,
@@ -150,7 +153,8 @@ class LoginRequest {
       this.type,
       this.verificationCode,
       this.tfaCode,
-      this.secret});
+      this.secret,
+      this.mfaCode});
 
   Map<String, dynamic> toJson() {
     final Map<String, dynamic> data = <String, dynamic>{};
@@ -165,6 +169,7 @@ class LoginRequest {
     }
     if (tfaCode != null) data['tfaCode'] = tfaCode;
     if (secret != null) data['secret'] = secret;
+    if (mfaCode != null && mfaCode!.isNotEmpty) data['mfa_code'] = mfaCode;
 
     Map<String, dynamic> deviceInfo = {};
     try {
@@ -183,6 +188,10 @@ class LoginResponse {
   String? tfa_type;
   String? secret;
   UserPayload? user;
+  // 管理员被策略强制 MFA 但尚未绑定时，服务端不签发会话，
+  // 而是返回一次性的注册挑战（见 rustdesk-api http/controller/api/login.go）。
+  bool mfaEnrollmentRequired = false;
+  String? mfaEnrollmentChallenge;
 
   LoginResponse(
       {this.access_token, this.type, this.tfa_type, this.secret, this.user});
@@ -193,7 +202,28 @@ class LoginResponse {
     tfa_type = json['tfa_type'];
     secret = json['secret'];
     user = json['user'] != null ? UserPayload.fromJson(json['user']) : null;
+    mfaEnrollmentRequired = json['mfa_enrollment_required'] == true;
+    mfaEnrollmentChallenge = json['mfa_enrollment_challenge'];
   }
+}
+
+/// 首次强制绑定 MFA 时服务端下发的设置材料。
+class MfaEnrollment {
+  final String secret;
+  final String otpauthUrl;
+  final List<String> backupCodes;
+
+  MfaEnrollment(
+      {required this.secret,
+      required this.otpauthUrl,
+      required this.backupCodes});
+
+  factory MfaEnrollment.fromJson(Map<String, dynamic> json) => MfaEnrollment(
+        secret: json['secret'] ?? '',
+        otpauthUrl: json['otpauth_url'] ?? '',
+        backupCodes:
+            (json['backup_codes'] as List?)?.map((e) => '$e').toList() ?? [],
+      );
 }
 
 class RequestException implements Exception {

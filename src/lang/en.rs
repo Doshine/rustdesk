@@ -1,6 +1,20 @@
 lazy_static::lazy_static! {
 pub static ref T: std::collections::HashMap<&'static str, &'static str> =
     [
+        ("MFA Code", "MFA Code"),
+        ("Set up MFA", "Set up MFA"),
+        ("Copied", "Copied"),
+        ("mfa_code_tip", "Required if MFA is enabled: 6-digit code or 10-char backup code; leave empty otherwise"),
+        ("mfa_enroll_intro", "Your administrator requires MFA for this account. Add the secret below to an authenticator app, then enter the first code to finish."),
+        ("mfa_secret_label", "Manual entry secret"),
+        ("mfa_otpauth_label", "otpauth link"),
+        ("mfa_backup_label", "One-time backup codes"),
+        ("mfa_backup_tip", "Backup codes are shown only once. Save them offline now — they are the only way in if you lose your authenticator."),
+        ("mfa_backup_saved", "I have saved the backup codes"),
+        ("mfa_first_code", "6-digit code from your authenticator"),
+        ("mfa_enroll_code_len_tip", "Enter the 6-digit code"),
+        ("mfa_backup_confirm_tip", "Confirm you saved the backup codes first"),
+        ("mfa_challenge_expired", "Enrollment session expired, please sign in again"),
         ("desk_tip", "Your desktop can be accessed with this ID and password."),
         ("connecting_status", "Connecting to the RustDesk network..."),
         ("not_ready_status", "Not ready. Please check your connection"),
