@@ -1061,7 +1061,9 @@ pub fn get_api_server(api: String, custom: String) -> String {
     res
 }
 
-fn get_api_server_(api: String, custom: String) -> String {
+// `_custom` 保留在签名里以维持与上游一致的调用形态，但本 fork 不再据其推导
+// API 地址（原因见函数体内注释）。加下划线前缀以避免未使用变量告警。
+fn get_api_server_(api: String, _custom: String) -> String {
     #[cfg(windows)]
     if let Ok(lic) = crate::platform::windows::get_license_from_exe_name() {
         if !lic.api.is_empty() {
@@ -1071,15 +1073,16 @@ fn get_api_server_(api: String, custom: String) -> String {
     if !api.is_empty() {
         return api.to_owned();
     }
-    let s0 = get_custom_rendezvous_server(custom);
-    if !s0.is_empty() {
-        let s = crate::increase_port(&s0, -2);
-        if s == s0 {
-            return format!("http://{}:{}", s, config::RENDEZVOUS_PORT - 2);
-        } else {
-            return format!("http://{}", s);
-        }
-    }
+    // 上游会在"只配了 ID 服务器、没配 API 服务器"时，把 API 地址推导成
+    // http://<同一主机>:<rendezvous 端口 - 2>。这个假设对本部署完全不成立：
+    //   1) 协议错：推导出 http://，凭据会走明文；
+    //   2) 端口错：本 fork 的 rendezvous 是 55108，减 2 得 55106，而 API 实际在网关后；
+    //   3) 主机错：API 独立部署在 Rainbond 网关上，与 hbbs 不同机。
+    // 一旦运维在客户端里手工改了 ID 服务器（服务器迁移时的常规操作），
+    // 上游逻辑会让客户端静默连到一个不存在的明文地址而登录失败。
+    //
+    // 因此：未显式配置 API 服务器时，一律使用固化的品牌 API 域名。
+    // 需要指向别处的部署应显式设置 API 服务器（上面 `api` 非空的分支已优先处理）。
     // Doshine fork: self-hosted API server (Rainbond gateway).
     "https://api-yinhe.ljedu.net".to_owned()
 }
