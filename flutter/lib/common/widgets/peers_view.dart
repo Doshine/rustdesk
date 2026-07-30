@@ -348,19 +348,24 @@ class _PeersViewState extends State<_PeersView>
                         // Flutter 没有等价 delegate，按同样的算法自己算列数：
                         // 先看这个宽度能塞下几列 158，再把余量平摊给每一列。
                         final columns = _autoFillColumns(constraints.maxWidth);
-                        return GridView.builder(
+                        // 设计稿 §2.1：在线在前、离线在后，各自带计数标题。
+                        // 分组不是排序问题——「现在能连的有几台」是打开这个窗口
+                        // 最先要回答的问题，混在一起就得自己一张张数。
+                        final online =
+                            peers.where((p) => p.online).toList(growable: false);
+                        final offline = peers
+                            .where((p) => !p.online)
+                            .toList(growable: false);
+                        // 用 CustomScrollView 而不是两个 GridView：两个各自滚动的
+                        // 网格没法共用一条滚动条，而且都得脱离虚拟化。
+                        return CustomScrollView(
                           controller: _scrollController,
-                          gridDelegate:
-                              SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: columns,
-                            mainAxisSpacing: _kCardGap,
-                            crossAxisSpacing: _kCardGap,
-                            mainAxisExtent: _kCardHeight,
-                          ),
-                          itemCount: peers.length,
-                          itemBuilder: (BuildContext context, int index) {
-                            return buildOnePeer(peers[index], false);
-                          },
+                          slivers: [
+                            ..._peerGroup(context, translate('Online'), online,
+                                columns, buildOnePeer),
+                            ..._peerGroup(context, translate('Offline'),
+                                offline, columns, buildOnePeer),
+                          ],
                         );
                       }));
 
@@ -395,6 +400,61 @@ class _PeersViewState extends State<_PeersView>
 
   /// 缩略图区 84 + 信息区（设计稿 §2.3）
   static const double _kCardHeight = 84 + 46;
+
+  /// 一个分组（标题 + 网格）。空分组不出标题——「离线 0」是句废话。
+  static List<Widget> _peerGroup(BuildContext context, String label,
+      List<Peer> group, int columns, Widget Function(Peer, bool) buildOnePeer) {
+    if (group.isEmpty) return const [];
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return [
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.only(
+              top: YinheSpacing.s16, bottom: YinheSpacing.s8),
+          child: Row(
+            children: [
+              Text(
+                label.toUpperCase(),
+                style: TextStyle(
+                  fontSize: 11,
+                  height: 16 / 11,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 11 * 0.12,
+                  color: dark
+                      ? YinheColors.textTertiaryDark
+                      : YinheColors.textTertiaryLight,
+                ),
+              ),
+              const SizedBox(width: YinheSpacing.s8),
+              Text(
+                '${group.length}',
+                style: YinheFonts.numeric(
+                  fontSize: 11,
+                  height: 16,
+                  fontWeight: FontWeight.w600,
+                  color: dark
+                      ? YinheColors.textSecondaryDark
+                      : YinheColors.textSecondaryLight,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      SliverGrid(
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: columns,
+          mainAxisSpacing: _kCardGap,
+          crossAxisSpacing: _kCardGap,
+          mainAxisExtent: _kCardHeight,
+        ),
+        delegate: SliverChildBuilderDelegate(
+          (context, index) => buildOnePeer(group[index], false),
+          childCount: group.length,
+        ),
+      ),
+    ];
+  }
 
   /// 等价于 CSS repeat(auto-fill, minmax(158px, 1fr))
   static int _autoFillColumns(double maxWidth) {

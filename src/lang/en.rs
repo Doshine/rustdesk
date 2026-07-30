@@ -177,6 +177,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("empty_search_title", "No matching devices found"),
         ("empty_search_subtitle", "Try a different keyword."),
         ("empty_load_failed_tip", "Failed to load. Tap to retry."),
+        ("Online", "Online"),
+        ("Offline", "Offline"),
         ("peers_empty_copy_my_id", "Copy my ID"),
         ("peers_empty_clear_filter", "Clear filter"),
         ("state_diagnostic_toggle", "Diagnostics"),
