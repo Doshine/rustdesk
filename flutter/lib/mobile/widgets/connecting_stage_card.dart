@@ -248,7 +248,7 @@ class _MobileConnectingStageCardState extends State<MobileConnectingStageCard>
     }
     final showSlowHint = _elapsedSeconds >= MobileConnectingStageCard.kSlowHintSeconds;
     // 深空 surface（token 产物 yinhe_tokens.dart 落地后应替换为 token 引用）
-    const surface = Color(0xFF141B2A);
+    const surface = YinheColors.surfaceDark; // tokens surface.dark.surface（spec §7.2）
     return Container(
       constraints: const BoxConstraints(maxWidth: 300),
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),

@@ -334,7 +334,10 @@ class _ToolbarTheme {
   static Color hoverInactiveColor = YinheColors.surfaceDark;
 
   static const Color redColor = MyTheme.danger; // tokens semantic.danger (v2.1)
-  static const Color hoverRedColor = Color(0xFFDC2626); // danger, one step deeper
+  // hover 态「再深一档」：danger 没有色阶 token，改为由 danger 派生而不是另写字面值，
+  // 这样改 tokens.json 后 hover 会跟着走（spec §7.2）。
+  static final Color hoverRedColor =
+      Color.alphaBlend(Colors.black.withOpacity(.18), redColor);
 
   // ---- 会话悬浮工具栏外观（规范 v2.1 §2.1.B）----
   /// 背景 rgba(20,27,42,.94)

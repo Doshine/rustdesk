@@ -161,14 +161,17 @@ void changeIdDialog() {
                       return Chip(
                           label: Text(
                             e.name,
+                            // tokens v2.1（spec §7.2）：满足=success，未满足=danger，
+                            // subtle 底色由语义色按 12% 派生，不再各写一个字面值。
                             style: TextStyle(
                                 color: checked
-                                    ? const Color(0xFF0A9471)
-                                    : Color.fromARGB(255, 198, 86, 157)),
+                                    ? YinheColors.successLight
+                                    : YinheColors.dangerLight),
                           ),
-                          backgroundColor: checked
-                              ? const Color(0xFFD0F7ED)
-                              : Color.fromARGB(255, 247, 205, 232));
+                          backgroundColor: (checked
+                                  ? YinheColors.successLight
+                                  : YinheColors.dangerLight)
+                              .withOpacity(0.12));
                     }).toList(),
                   )).marginOnly(bottom: 8)
               : SizedBox.shrink(),

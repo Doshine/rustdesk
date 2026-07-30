@@ -90,10 +90,11 @@ class EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    // tokens v2.1（spec §7.2）：标题 text.tertiary，副标题 text.disabled
     final titleColor =
-        isDark ? const Color(0xFF9AA4B2) : const Color(0xFF646A73);
+        isDark ? YinheColors.textTertiaryDark : YinheColors.textTertiaryLight;
     final subtitleColor =
-        isDark ? const Color(0xFF6B7280) : const Color(0xFF9AA0A6);
+        isDark ? YinheColors.textDisabledDark : YinheColors.textDisabledLight;
     final bool compact = !(isDesktop || isWebDesktop);
     final double illoSize = compact ? 96.0 : 112.0;
 

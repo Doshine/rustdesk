@@ -573,7 +573,7 @@ class _FloatingMouseState extends State<FloatingMouse> {
                 height: s,
                 decoration: BoxDecoration(
                   // 深空 surface（token 产物落地后应替换为 token 引用）
-                  color: const Color(0xFF141B2A),
+                  color: YinheColors.surfaceDark, // tokens surface.dark.surface（spec §7.2）
                   shape: BoxShape.circle,
                   border: Border.all(
                       color: MyTheme.accent.withOpacity(0.65), width: 1.5),

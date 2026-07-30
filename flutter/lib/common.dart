@@ -820,16 +820,19 @@ void msgBox(SessionID sessionId, String type, String title, String text,
 }
 
 Color? _msgboxColor(String type) {
+  // tokens v2.1（spec §7.2）。msgbox 在深色底上绘制，语义色取 dark 档。
   if (type == "input-password" || type == "custom-os-password") {
-    return Color(0xFFAD448E);
+    // 原 #AD448E 品红在设计系统里没有对应语义档位；口令提示归入 info，
+    // 与默认的 brand.primary 拉开一档以保留原有的视觉区分。
+    return YinheColors.infoDark;
   }
   if (type.contains("success")) {
-    return Color(0xFF32bea6);
+    return YinheColors.successDark;
   }
   if (type.contains("error") || type == "re-input-password") {
-    return Color(0xFFE04F5F);
+    return YinheColors.dangerDark;
   }
-  return Color(0xFF2C8CFF);
+  return YinheColors.blue500;
 }
 
 Widget msgboxIcon(String type) {
