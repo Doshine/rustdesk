@@ -205,6 +205,15 @@ class _ConnectingStageCardState extends State<ConnectingStageCard>
   late final AnimationController _pulseController;
 
   Worker? _stageWorker;
+
+  /// 每个阶段的进入时刻与实测耗时（设计稿 §3.3 分段耗时）。
+  ///
+  /// 全部由真实的阶段推进事件打点，不用定时器模拟：`widget.stage` 来自
+  /// FfiModel.connectionStage，由 Rust 侧的连接事件驱动。断网停在某一阶段时
+  /// 后面的段就没有耗时，界面上也不会凭空补出来。
+  final List<DateTime?> _stageEnteredAt = [];
+  final List<int?> _stageElapsedMs = [];
+
   bool _diagExpanded = false;
   bool _pulseStarted = false;
   bool _ceremonySkipped = false;
@@ -227,7 +236,13 @@ class _ConnectingStageCardState extends State<ConnectingStageCard>
       vsync: this,
       duration: YinheMotion.successPulse,
     );
+    _stageEnteredAt.addAll(
+        List<DateTime?>.filled(ConnectingStageCard.stageLabels.length, null));
+    _stageElapsedMs.addAll(
+        List<int?>.filled(ConnectingStageCard.stageLabels.length, null));
+    _markStageEntered(widget.stage.value);
     _stageWorker = ever<int>(widget.stage, (s) {
+      _markStageEntered(s);
       if (s >= _lastStage) _startConfirmPulse();
     });
     // 若展示卡片时已处于末阶段（如快速重连），首帧后立即补齐仪式。
@@ -243,6 +258,54 @@ class _ConnectingStageCardState extends State<ConnectingStageCard>
     _trailController.dispose();
     _pulseController.dispose();
     super.dispose();
+  }
+
+  /// 记录进入某阶段的时刻，并把上一阶段的实测耗时结账。
+  ///
+  /// 阶段可能一次跳好几级（缓存的对端信息会让 setConnectionType 直接把 stage
+  /// 推到 3），中间那几段就没有独立的进入时刻，只能记为未知，不做平均分摊——
+  /// 分摊出来的数字看着好看，但它不是量到的。
+  void _markStageEntered(int stage) {
+    final now = DateTime.now();
+    final s = stage.clamp(0, _lastStage).toInt();
+    if (_stageEnteredAt[s] != null) return;
+    for (var i = s - 1; i >= 0; i--) {
+      final entered = _stageEnteredAt[i];
+      if (entered == null) continue;
+      _stageElapsedMs[i] ??= now.difference(entered).inMilliseconds;
+      break;
+    }
+    _stageEnteredAt[s] = now;
+    if (mounted) setState(() {});
+  }
+
+  /// 分段耗时行（设计稿 §3.3）：`发现 120ms · 打洞 340ms · …`
+  /// 等宽 + tabular-nums，抵达后展示；量不到的段直接不显示。
+  Widget _buildTimings(BuildContext context) {
+    final parts = <String>[];
+    for (var i = 0; i < _stageElapsedMs.length; i++) {
+      final ms = _stageElapsedMs[i];
+      if (ms == null) continue;
+      parts.add('${translate(ConnectingStageCard.stageLabels[i])} ${ms}ms');
+    }
+    if (parts.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: YinheSpacing.s12),
+      child: Text(
+        parts.join(' · '),
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: YinheFonts.sizeCaption,
+          height: 16 / 11,
+          color: Theme.of(context).brightness == Brightness.dark
+              ? YinheColors.textTertiaryDark
+              : YinheColors.textTertiaryLight,
+          fontFamily: YinheFonts.mono,
+          fontFamilyFallback: YinheFonts.monoFallback,
+          fontFeatures: const [FontFeature('tnum')],
+        ),
+      ),
+    );
   }
 
   void _startConfirmPulse() {
@@ -379,6 +442,11 @@ class _ConnectingStageCardState extends State<ConnectingStageCard>
               const SizedBox(height: 16),
               Obx(() => _buildStageList(context)),
               Obx(() => _buildRelayHint(context)),
+              // 抵达后展示每段真实耗时（设计稿 §3.3）
+              Obx(() => widget.failure?.value == null &&
+                      widget.stage.value >= _lastStage
+                  ? _buildTimings(context)
+                  : const SizedBox.shrink()),
               Obx(() {
                 final f = widget.failure?.value;
                 if (f == null) return const SizedBox.shrink();
