@@ -210,7 +210,16 @@ class _FirstRunWizardState extends State<FirstRunWizard> {
       );
 
   Widget _idCard() {
-    final id = bind.mainGetMyId();
+    // mainGetMyId 是异步的（native 侧走 FFI、web 侧走 bridge），不能当同步值用。
+    // flutter analyze 抓不到这类错误：generated_bridge 缺失时 bind 是 unresolved，
+    // 经过 bind. 的调用全都躲过了类型检查——这个是 flutter build web 抓出来的。
+    return FutureBuilder<String>(
+      future: bind.mainGetMyId(),
+      builder: (context, snapshot) => _idCardBody(snapshot.data ?? ''),
+    );
+  }
+
+  Widget _idCardBody(String id) {
     return Container(
       padding: const EdgeInsets.symmetric(
           horizontal: YinheSpacing.s20, vertical: YinheSpacing.s16),
