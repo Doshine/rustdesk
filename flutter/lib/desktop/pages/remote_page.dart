@@ -15,12 +15,15 @@ import '../../common/widgets/remote_input.dart';
 import '../../common.dart';
 import '../../common/widgets/dialog.dart';
 import '../../common/widgets/toolbar.dart';
+import '../../models/file_model.dart';
 import '../../models/model.dart';
 import '../../models/input_model.dart';
 import '../../models/platform_model.dart';
 import '../../common/shared_state.dart';
 import '../../utils/image.dart';
 import '../widgets/remote_toolbar.dart';
+import '../widgets/session_overlay.dart';
+import '../widgets/session_quality_hud.dart';
 import '../widgets/kb_layout_type_chooser.dart';
 import '../widgets/tabbar_widget.dart';
 
@@ -91,6 +94,10 @@ class _RemotePageState extends State<RemotePage>
   final _uniqueKey = UniqueKey();
 
   var _blockableOverlayState = BlockableOverlayState();
+
+  /// 会话面板的单一状态机（设计稿 §1.2）。整个会话只有这一个「哪个面板开着」，
+  /// 不再让每个功能各自持有一个 showXxx。
+  final _sessionOverlay = SessionOverlayController();
 
   final FocusNode _rawKeyFocusNode = FocusNode(debugLabel: "rawkeyFocusNode");
 
@@ -410,8 +417,69 @@ class _RemotePageState extends State<RemotePage>
           overlays: SystemUiOverlay.values);
     }
     WakelockManager.disable(_uniqueKey);
+    _sessionOverlay.dispose();
     await Get.delete<FFI>(tag: widget.id);
     removeSharedStates(widget.id);
+  }
+
+  /// 把拖进会话窗口的文件真的传过去（设计稿 §4.5 / 审计 CLI-DROP-01）。
+  ///
+  /// 原实现拿到 `details.files` 之后直接丢弃，只开了一个文件传输窗口，用户以为
+  /// 传了、其实什么都没发生。这里改成走既有的文件传输通道：普通会话本身就能收发
+  /// 文件消息（对端的 `file` 权限决定给不给），所以不需要新开连接。
+  ///
+  /// 三条分支都必须给用户一个明确结果，不能静默返回：
+  /// - 没有 file 权限 → 说清楚是对端不允许
+  /// - 拿不到对端目录（对端没响应读目录）→ 退回旧行为开传输窗口，并说明原因
+  /// - 正常 → 送进既有 jobController，并告诉用户送到了哪个目录
+  Future<void> _sendDroppedFiles(
+      BuildContext context, DropDoneDetails details) async {
+    _dropHereVisible.value = false;
+    if (details.files.isEmpty) return;
+    if (_ffi.ffiModel.pi.isSet.isFalse) return;
+    if (_ffi.ffiModel.permissions['file'] == false) {
+      showToast(translate('drop_files_denied'));
+      return;
+    }
+
+    final remote = _ffi.fileModel.remoteController;
+    if (remote.directory.value.path.isEmpty) {
+      // 普通会话不会自动初始化文件模型（只有 fileTransfer 连接才 onReady），
+      // 这里按需初始化一次；对端不响应就走下面的兜底分支。
+      try {
+        await _ffi.fileModel.onReady().timeout(const Duration(seconds: 5));
+      } catch (e) {
+        debugPrint('drop: init file model failed: $e');
+      }
+    }
+
+    final target = remote.directoryData();
+    if (target.directory.path.isEmpty) {
+      showToast(translate('drop_files_fallback'));
+      final connToken = bind.sessionGetConnToken(sessionId: sessionId);
+      if (!mounted) return;
+      connect(context, widget.id, isFileTransfer: true, connToken: connToken);
+      return;
+    }
+
+    final items = SelectedItems(isLocal: true);
+    for (final f in details.files) {
+      int size = 0;
+      try {
+        size = await f.length();
+      } catch (_) {
+        // 目录拿不到长度；Rust 侧的 send_files 自己判断目录，这里不用较真
+      }
+      items.add(Entry()
+        ..name = f.name
+        ..path = f.path
+        ..entryType = 4
+        ..size = size);
+    }
+    if (items.items.isEmpty) return;
+    await _ffi.fileModel.localController.sendFiles(items, target);
+    showToast(
+        '${translate('drop_files_sent')} ${target.directory.path}（${items.items.length}）');
   }
 
   Widget emptyOverlay() => BlockableOverlay(
@@ -428,6 +496,7 @@ class _RemotePageState extends State<RemotePage>
           id: widget.id,
           ffi: _ffi,
           state: widget.toolbarState,
+          sessionOverlay: _sessionOverlay,
           onEnterOrLeaveImageSetter: (id, func) {
             _instanceIdOnEnterOrLeaveImage4Toolbar = id;
             _onEnterOrLeaveImage4Toolbar = func;
@@ -503,6 +572,14 @@ class _RemotePageState extends State<RemotePage>
                         ])
                       : remoteToolbar(context)),
               _ffi.ffiModel.pi.isSet.isFalse ? emptyOverlay() : Offstage(),
+              // 质量 HUD：顶部居中，与工具栏同一层（tokens.zIndex.sessionToolbar）
+              Obx(() => _ffi.ffiModel.pi.isSet.isTrue &&
+                      !_ffi.inputModel.relativeMouseMode.value
+                  ? SessionQualityHud(id: widget.id, ffi: _ffi)
+                  : const Offstage()),
+              // 单一 Overlay：遮罩 600 / 面板 700，永远压在 HUD 与工具栏之上
+              SessionOverlay(
+                  id: widget.id, ffi: _ffi, controller: _sessionOverlay),
             ],
           ),
         ],
@@ -520,14 +597,7 @@ class _RemotePageState extends State<RemotePage>
           }
         },
         onDragExited: (_) => _dropHereVisible.value = false,
-        onDragDone: (details) {
-          _dropHereVisible.value = false;
-          if (details.files.isEmpty) return;
-          if (_ffi.ffiModel.pi.isSet.isFalse) return;
-          final connToken = bind.sessionGetConnToken(sessionId: sessionId);
-          connect(context, widget.id,
-              isFileTransfer: true, connToken: connToken);
-        },
+        onDragDone: (details) => _sendDroppedFiles(context, details),
         child: Stack(
           children: [
             content,
@@ -747,14 +817,8 @@ class _RemotePageState extends State<RemotePage>
                   zoomCursor: _zoomCursor,
                 )));
     }
-    paints.add(
-      Positioned(
-        top: 10,
-        right: 10,
-        child: _buildRawTouchAndPointerRegion(
-            QualityMonitor(_ffi.qualityMonitorModel), null, null),
-      ),
-    );
+    // 原先右上角常驻的 QualityMonitor 浮层已由顶部居中的 SessionQualityHud 取代
+    // （§4.2）：它是「会话区域无常驻遮挡」验收项里点名的那一块。
     return Stack(
       children: paints,
     );

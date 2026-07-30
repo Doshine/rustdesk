@@ -24,6 +24,7 @@ import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import '../../common/shared_state.dart';
 import './popup_menu.dart';
+import './session_overlay.dart';
 import './kb_layout_type_chooser.dart';
 import 'package:flutter_hbb/utils/scale.dart';
 import 'package:flutter_hbb/common/widgets/custom_scale_base.dart';
@@ -467,6 +468,10 @@ class RemoteToolbar extends StatefulWidget {
   final Function(int) onEnterOrLeaveImageCleaner;
   final Function(VoidCallback) setRemoteState;
 
+  /// 会话面板状态机（设计稿 §1.2）。桌面会话页会传；其它入口（如摄像头查看）
+  /// 暂时不带面板，这时相关按钮不出现，而不是出现一个点了没反应的按钮。
+  final SessionOverlayController? sessionOverlay;
+
   RemoteToolbar({
     Key? key,
     required this.id,
@@ -475,6 +480,7 @@ class RemoteToolbar extends StatefulWidget {
     required this.onEnterOrLeaveImageSetter,
     required this.onEnterOrLeaveImageCleaner,
     required this.setRemoteState,
+    this.sessionOverlay,
   }) : super(key: key);
 
   @override
@@ -896,23 +902,27 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
         if (widget.ffi.connType == ConnType.defaultConn)
           _KeyboardMenu(id: widget.id, ffi: widget.ffi),
       ],
-      // 协作组：聊天、语音、录制
+      // 协作组：聊天、语音、录制。聊天不再开独立浮窗，改为打开面板的 chat tab。
       [
-        _ChatMenu(id: widget.id, ffi: widget.ffi),
+        _ChatMenu(
+            id: widget.id,
+            ffi: widget.ffi,
+            sessionOverlay: widget.sessionOverlay),
         if (!isWeb) _VoiceCallMenu(id: widget.id, ffi: widget.ffi),
         if (!isWeb) _RecordMenu(),
       ],
+      // 面板组（设计稿 §1.2）：一个状态机管全部 tab，点第二次关闭，
+      // 打开新 tab 直接替换——不会再出现两个浮窗互相压着的情况。
+      // chat 的入口在协作组里，这里不重复放。
+      if (widget.sessionOverlay != null)
+        OverlayTab.values
+            .where((t) => t != OverlayTab.chat)
+            .map<Widget>((tab) => _OverlayTabButton(
+                controller: widget.sessionOverlay!, tab: tab))
+            .toList(),
       // 关闭
       [
         _CloseMenu(id: widget.id, ffi: widget.ffi),
-      ],
-      // 质量区固定最右（规范 §2.1.B）：延迟 + FPS + 语义状态点，可展开详情
-      [
-        _QualityZone(
-            id: widget.id,
-            ffi: widget.ffi,
-            edge: edge,
-            isHorizontal: isHorizontal),
       ],
     ];
     final toolbarBorderRadius =
@@ -1011,633 +1021,9 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
   }
 }
 
-/// 工具栏最右常驻质量区（规范 §2.1.B）：
-/// 摘要行 = 四档信号条 + 延迟 ms + FPS（数字 tnum）；
-/// hover 或点击展开单一会话 Overlay：实时指标、拥塞预警与画质热切换。
-/// 数据取现有 FFI 通道字段（qualityMonitorModel + ConnectionTypeState），
-/// FFI 没有的字段（如丢包率）显示 '—'，不伪造。
-enum _NetworkQualityTier { unknown, good, fair, poor }
-
-class _QualityZone extends StatefulWidget {
-  final String id;
-  final FFI ffi;
-  final _ToolbarEdge edge;
-  final bool isHorizontal;
-
-  const _QualityZone({
-    Key? key,
-    required this.id,
-    required this.ffi,
-    required this.edge,
-    required this.isHorizontal,
-  }) : super(key: key);
-
-  // Delay tiers from design tokens v2.1 semantic.*（网络质量用真实语义色，
-  // 规范 §1.1）；无数据用 Neutral 400 空心中性色（规范 §3.11）。
-  static const Color _goodColor = MyTheme.success;
-  static const Color _fairColor = MyTheme.warning;
-  static const Color _poorColor = MyTheme.danger;
-  static const Color _noDataColor = YinheColors.neutral400;
-
-  static Color delayColor(int? delayMs) {
-    if (delayMs == null) return _noDataColor;
-    if (delayMs < 50) return _goodColor;
-    if (delayMs < 120) return _fairColor;
-    return _poorColor;
-  }
-
-  static int? parseDelayMs(String? raw) =>
-      raw == null ? null : (int.tryParse(raw) ?? double.tryParse(raw)?.round());
-
-  static _NetworkQualityTier qualityTier(int? delayMs) {
-    if (delayMs == null) return _NetworkQualityTier.unknown;
-    if (delayMs < 50) return _NetworkQualityTier.good;
-    if (delayMs < 120) return _NetworkQualityTier.fair;
-    return _NetworkQualityTier.poor;
-  }
-
-  @override
-  State<_QualityZone> createState() => _QualityZoneState();
-}
-
-class _QualityZoneState extends State<_QualityZone> {
-  final OverlayPortalController _overlayController = OverlayPortalController();
-  final LayerLink _link = LayerLink();
-  Timer? _hideTimer;
-
-  /// 点击后固定展开；hover 仅临时展开。
-  bool _pinned = false;
-  bool _applyingQuality = false;
-  String? _imageQuality;
-
-  FFI get ffi => widget.ffi;
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_loadImageQuality());
-  }
-
-  @override
-  void dispose() {
-    _hideTimer?.cancel();
-    super.dispose();
-  }
-
-  Future<void> _loadImageQuality() async {
-    try {
-      final value = await bind.sessionGetImageQuality(sessionId: ffi.sessionId);
-      if (mounted) setState(() => _imageQuality = value);
-    } catch (error) {
-      debugPrint('Failed to load image quality: $error');
-    }
-  }
-
-  Future<void> _applyImageQuality(String value) async {
-    if (_applyingQuality) return;
-    if (value == _imageQuality) {
-      if (value == kRemoteImageQualityCustom) {
-        customImageQualityDialog(ffi.sessionId, widget.id, ffi);
-      }
-      return;
-    }
-    setState(() => _applyingQuality = true);
-    try {
-      await bind.sessionSetImageQuality(sessionId: ffi.sessionId, value: value);
-      if (mounted) setState(() => _imageQuality = value);
-      if (value == kRemoteImageQualityCustom) {
-        customImageQualityDialog(ffi.sessionId, widget.id, ffi);
-      }
-    } catch (error) {
-      debugPrint('Failed to apply image quality: $error');
-    } finally {
-      if (mounted) setState(() => _applyingQuality = false);
-    }
-  }
-
-  void _show() {
-    _hideTimer?.cancel();
-    _overlayController.show();
-  }
-
-  void _scheduleHide() {
-    _hideTimer?.cancel();
-    if (_pinned) return;
-    _hideTimer = Timer(YinheMotion.hover, () {
-      if (mounted && !_pinned) _overlayController.hide();
-    });
-  }
-
-  void _togglePinned() {
-    _hideTimer?.cancel();
-    setState(() => _pinned = !_pinned);
-    if (_pinned) {
-      _overlayController.show();
-    } else {
-      _overlayController.hide();
-    }
-  }
-
-  void _unpin() {
-    if (!_pinned) return;
-    setState(() => _pinned = false);
-    _overlayController.hide();
-  }
-
-  static const TextStyle _labelStyle = TextStyle(
-    fontSize: 11,
-    height: 16 / 11,
-    color: YinheColors.textTertiaryDark,
-  );
-
-  static TextStyle get _valueStyle => YinheFonts.numeric(
-    fontSize: 11,
-    height: 16,
-    fontWeight: FontWeight.w600,
-    color: YinheColors.textPrimaryDark,
-  );
-
-  String _connectionRoute() {
-    try {
-      final direct = ConnectionTypeState.find(widget.id).direct.value;
-      if (direct == ConnectionType.strDirect) return translate('Direct');
-      if (direct == ConnectionType.strIndirect) return translate('Relayed');
-    } catch (_) {
-      // 会话状态尚未注册时保持空值，不推断路由类型。
-    }
-    return '—';
-  }
-
-  Widget _signalBars(int? delayMs, {bool compact = false}) {
-    final tier = _QualityZone.qualityTier(delayMs);
-    final activeBars = tier == _NetworkQualityTier.good
-        ? 4
-        : tier == _NetworkQualityTier.fair
-        ? 3
-        : tier == _NetworkQualityTier.poor
-        ? 1
-        : 0;
-    final color = _QualityZone.delayColor(delayMs);
-    final heights = compact
-        ? const <double>[4, 6, 8, 10]
-        : const <double>[6, 9, 12, 15];
-    return Semantics(
-      label: '${translate('Delay')} ${delayMs == null ? '—' : '${delayMs}ms'}',
-      child: SizedBox(
-        width: compact ? 14 : 22,
-        height: compact ? 10 : 16,
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: List.generate(4, (index) {
-            final active = index < activeBars;
-            return AnimatedContainer(
-              duration: YinheMotion.hover,
-              curve: YinheMotion.ease,
-              width: compact ? 2 : 3,
-              height: heights[index],
-              decoration: BoxDecoration(
-                color: active ? color : YinheColors.neutral700,
-                borderRadius: BorderRadius.circular(1),
-              ),
-            );
-          }),
-        ),
-      ),
-    );
-  }
-
-  Widget _detailRow(String label, String value, {Color? valueColor}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: _labelStyle),
-          const SizedBox(width: 16),
-          Text(
-            value,
-            style: valueColor == null
-                ? _valueStyle
-                : _valueStyle.copyWith(color: valueColor),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _presetButton({
-    required String value,
-    required String label,
-    required IconData icon,
-  }) {
-    final selected = _imageQuality == value;
-    return Expanded(
-      child: Tooltip(
-        message: label,
-        child: Material(
-          color: selected
-              ? YinheColors.surfaceSelectedDark
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(YinheRadius.control),
-          child: InkWell(
-            onTap: _applyingQuality ? null : () => _applyImageQuality(value),
-            borderRadius: BorderRadius.circular(YinheRadius.control),
-            child: AnimatedContainer(
-              duration: YinheMotion.normal,
-              curve: YinheMotion.standard,
-              constraints: const BoxConstraints(minHeight: 58),
-              padding: const EdgeInsets.symmetric(
-                horizontal: YinheSpacing.s4,
-                vertical: YinheSpacing.s8,
-              ),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(YinheRadius.control),
-                border: Border.all(
-                  color: selected
-                      ? YinheColors.blue400
-                      : YinheColors.borderDark,
-                ),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    icon,
-                    size: 16,
-                    color: selected
-                        ? YinheColors.cyan300
-                        : YinheColors.textSecondaryDark,
-                  ),
-                  const SizedBox(height: YinheSpacing.s4),
-                  Text(
-                    label,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 10,
-                      height: 1.2,
-                      fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-                      color: selected
-                          ? YinheColors.textPrimaryDark
-                          : YinheColors.textSecondaryDark,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildQualityPresets() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              translate('Image Quality'),
-              style: _labelStyle.copyWith(
-                color: YinheColors.textSecondaryDark,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            if (_applyingQuality)
-              const SizedBox(
-                width: 12,
-                height: 12,
-                child: CircularProgressIndicator(strokeWidth: 1.5),
-              ),
-          ],
-        ),
-        const SizedBox(height: YinheSpacing.s8),
-        Row(
-          children: [
-            _presetButton(
-              value: kRemoteImageQualityBest,
-              label: translate('Good image quality'),
-              icon: Icons.high_quality_outlined,
-            ),
-            const SizedBox(width: YinheSpacing.s8),
-            _presetButton(
-              value: kRemoteImageQualityBalanced,
-              label: translate('Balanced'),
-              icon: Icons.tune,
-            ),
-            const SizedBox(width: YinheSpacing.s8),
-            _presetButton(
-              value: kRemoteImageQualityLow,
-              label: translate('Optimize reaction time'),
-              icon: Icons.bolt,
-            ),
-          ],
-        ),
-        Align(
-          alignment: Alignment.centerRight,
-          child: TextButton.icon(
-            onPressed: _applyingQuality
-                ? null
-                : () => _applyImageQuality(kRemoteImageQualityCustom),
-            icon: const Icon(Icons.tune, size: 14),
-            label: Text(translate('Custom')),
-            style: TextButton.styleFrom(
-              foregroundColor: YinheColors.textSecondaryDark,
-              textStyle: const TextStyle(fontSize: 11),
-              visualDensity: VisualDensity.compact,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildCongestionWarning(int delayMs) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: YinheSpacing.s12),
-      padding: const EdgeInsets.fromLTRB(
-        YinheSpacing.s12,
-        YinheSpacing.s8,
-        YinheSpacing.s8,
-        YinheSpacing.s8,
-      ),
-      decoration: BoxDecoration(
-        color: YinheColors.dangerDark.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(YinheRadius.control),
-        border: const Border(
-          left: BorderSide(color: YinheColors.dangerDark, width: 3),
-        ),
-      ),
-      child: Row(
-        children: [
-          const Icon(
-            Icons.warning_amber_rounded,
-            size: 18,
-            color: YinheColors.dangerDark,
-          ),
-          const SizedBox(width: YinheSpacing.s8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${translate('Warning')} · ${delayMs}ms',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: YinheColors.dangerDark,
-                  ),
-                ),
-                Text(
-                  translate('Optimize reaction time'),
-                  style: _labelStyle.copyWith(
-                    color: YinheColors.textSecondaryDark,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            tooltip: translate('Apply'),
-            onPressed: _applyingQuality
-                ? null
-                : () => _applyImageQuality(kRemoteImageQualityLow),
-            icon: const Icon(Icons.bolt, size: 16),
-            visualDensity: VisualDensity.compact,
-            color: YinheColors.dangerDark,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDetailPanel() {
-    return AnimatedBuilder(
-      animation: ffi.qualityMonitorModel,
-      builder: (context, _) {
-        final data = ffi.qualityMonitorModel.data;
-        final delayMs = _QualityZone.parseDelayMs(data.delay);
-        return MouseRegion(
-          onEnter: (_) => _show(),
-          onExit: (_) => _scheduleHide(),
-          child: Container(
-            width: 304,
-            padding: const EdgeInsets.all(YinheSpacing.s16),
-            decoration: BoxDecoration(
-              color: YinheColors.surfaceRaisedDark,
-              borderRadius: BorderRadius.circular(YinheRadius.card),
-              border: Border.all(color: YinheColors.borderStrongDark, width: 1),
-              boxShadow: YinheElevation.elev2Dark,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    _signalBars(delayMs),
-                    const SizedBox(width: YinheSpacing.s12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            translate('Show quality monitor'),
-                            style: const TextStyle(
-                              fontSize: 13,
-                              height: 1.35,
-                              fontWeight: FontWeight.w600,
-                              color: YinheColors.textPrimaryDark,
-                            ),
-                          ),
-                          Text(_connectionRoute(), style: _labelStyle),
-                        ],
-                      ),
-                    ),
-                    if (_pinned)
-                      IconButton(
-                        tooltip: translate('Close'),
-                        onPressed: _unpin,
-                        icon: const Icon(Icons.close, size: 16),
-                        visualDensity: VisualDensity.compact,
-                        color: YinheColors.textSecondaryDark,
-                      ),
-                  ],
-                ),
-                const SizedBox(height: YinheSpacing.s12),
-                if (delayMs != null && delayMs >= 120)
-                  _buildCongestionWarning(delayMs),
-                _detailRow(
-                  '${translate('Delay')} (ms)',
-                  delayMs == null ? '—' : '$delayMs',
-                  valueColor: _QualityZone.delayColor(delayMs),
-                ),
-                _detailRow('FPS', data.fps ?? '—'),
-                _detailRow(translate('Speed'), data.speed ?? '—'),
-                _detailRow(
-                  '${translate('Bitrate')} (kb)',
-                  data.targetBitrate ?? '—',
-                ),
-                _detailRow(translate('Codec'), data.codecFormat ?? '—'),
-                _detailRow(translate('Relay Node'), _connectionRoute()),
-                // FFI 通道无丢包率字段，按任务约定显示 '—'。
-                _detailRow(translate('Packet Loss'), '—'),
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: YinheSpacing.s12),
-                  child: Divider(height: 1, color: YinheColors.dividerDark),
-                ),
-                _buildQualityPresets(),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  ({Alignment target, Alignment follower, Offset offset}) _overlayPlacement() {
-    switch (widget.edge) {
-      case _ToolbarEdge.bottom:
-        return (
-          target: Alignment.topRight,
-          follower: Alignment.bottomRight,
-          offset: const Offset(0, -6),
-        );
-      case _ToolbarEdge.left:
-        return (
-          target: Alignment.centerRight,
-          follower: Alignment.centerLeft,
-          offset: const Offset(6, 0),
-        );
-      case _ToolbarEdge.right:
-        return (
-          target: Alignment.centerLeft,
-          follower: Alignment.centerRight,
-          offset: const Offset(-6, 0),
-        );
-      case _ToolbarEdge.top:
-        return (
-          target: Alignment.bottomRight,
-          follower: Alignment.topRight,
-          offset: const Offset(0, 6),
-        );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: ffi.qualityMonitorModel,
-      builder: (context, _) {
-        final data = ffi.qualityMonitorModel.data;
-        final delayMs = _QualityZone.parseDelayMs(data.delay);
-        final placement = _overlayPlacement();
-        Text numText(String v) => Text(
-          v,
-          style: YinheFonts.numeric(
-            fontSize: 10,
-            height: 12,
-            fontWeight: FontWeight.w600,
-            color: YinheColors.textSecondaryDark,
-          ),
-        );
-        final summary = <Widget>[
-          if (delayMs != null && delayMs >= 120) ...[
-            const Icon(
-              Icons.warning_amber_rounded,
-              size: 12,
-              color: YinheColors.dangerDark,
-            ),
-            SizedBox(
-              width: widget.isHorizontal ? 3 : 0,
-              height: widget.isHorizontal ? 0 : 2,
-            ),
-          ],
-          _signalBars(delayMs, compact: true),
-          SizedBox(
-            width: widget.isHorizontal ? 4 : 0,
-            height: widget.isHorizontal ? 0 : 2,
-          ),
-          numText(delayMs == null ? '—' : '${delayMs}ms'),
-          if (widget.isHorizontal) ...[
-            const SizedBox(width: 6),
-            numText(data.fps == null ? '—' : '${data.fps}fps'),
-          ],
-        ];
-        return CompositedTransformTarget(
-          link: _link,
-          child: OverlayPortal(
-            controller: _overlayController,
-            overlayChildBuilder: (context) => CompositedTransformFollower(
-              link: _link,
-              targetAnchor: placement.target,
-              followerAnchor: placement.follower,
-              offset: placement.offset,
-              child: _buildDetailPanel(),
-            ),
-            child: Tooltip(
-              message: translate('Show quality monitor'),
-              child: Semantics(
-                button: true,
-                label: translate('Show quality monitor'),
-                child: MouseRegion(
-                  onEnter: (_) => _show(),
-                  onExit: (_) => _scheduleHide(),
-                  child: InkWell(
-                    onTap: _togglePinned,
-                    onFocusChange: (focused) =>
-                        focused ? _show() : _scheduleHide(),
-                    borderRadius: BorderRadius.circular(
-                      _ToolbarTheme.iconRadius,
-                    ),
-                    child: AnimatedContainer(
-                      duration: YinheMotion.hover,
-                      curve: YinheMotion.ease,
-                      width: widget.isHorizontal
-                          ? null
-                          : _ToolbarTheme.buttonSize,
-                      height: widget.isHorizontal
-                          ? _ToolbarTheme.buttonSize
-                          : null,
-                      alignment: Alignment.center,
-                      padding: widget.isHorizontal
-                          ? const EdgeInsets.symmetric(horizontal: 5)
-                          : EdgeInsets.zero,
-                      margin: const EdgeInsets.symmetric(
-                        horizontal: _ToolbarTheme.buttonHMargin,
-                        vertical: _ToolbarTheme.buttonVMargin,
-                      ),
-                      decoration: BoxDecoration(
-                        color: delayMs != null && delayMs >= 120
-                            ? YinheColors.dangerDark.withOpacity(0.08)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(
-                          _ToolbarTheme.iconRadius,
-                        ),
-                      ),
-                      child: widget.isHorizontal
-                          ? Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: summary,
-                            )
-                          : Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: summary,
-                            ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
+// _QualityZone（工具栏内嵌的质量指示 + 可展开的详情浮层）已整体移除：
+// 顶部 SessionQualityHud 承担常态指示（设计稿 §4.2），详情进面板的诊断 tab。
+// 它那个可展开浮层正是 §4.5「同一时刻只可能存在一个 Overlay」要消除的叠层之一。
 
 class _PinMenu extends StatelessWidget {
   final ToolbarState state;
@@ -3359,10 +2745,12 @@ class _KeyboardMenu extends StatelessWidget {
 class _ChatMenu extends StatefulWidget {
   final String id;
   final FFI ffi;
+  final SessionOverlayController? sessionOverlay;
   _ChatMenu({
     Key? key,
     required this.id,
     required this.ffi,
+    this.sessionOverlay,
   }) : super(key: key);
 
   @override
@@ -3408,6 +2796,16 @@ class _ChatMenuState extends State<_ChatMenu> {
   }
 
   _textChatOnPressed() {
+    widget.ffi.chatModel
+        .changeCurrentKey(MessageKey(widget.ffi.id, ChatModel.clientModeID));
+    final overlay = widget.sessionOverlay;
+    if (overlay != null) {
+      // 聊天从可拖动的独立浮窗改成面板里的一个 tab（设计稿 §1.2）：
+      // 它和质量浮层、文件面板互相叠层是当前会话画布最明显的毛病。
+      overlay.toggle(OverlayTab.chat);
+      return;
+    }
+    // 没有面板的入口（如摄像头查看窗口）保持旧的浮窗行为
     RenderBox? renderBox =
         chatButtonKey.currentContext?.findRenderObject() as RenderBox?;
     Offset? initPos;
@@ -3415,8 +2813,6 @@ class _ChatMenuState extends State<_ChatMenu> {
       final pos = renderBox.localToGlobal(Offset.zero);
       initPos = Offset(pos.dx, pos.dy + _ToolbarTheme.dividerHeight);
     }
-    widget.ffi.chatModel
-        .changeCurrentKey(MessageKey(widget.ffi.id, ChatModel.clientModeID));
     widget.ffi.chatModel.toggleChatOverlay(chatInitPos: initPos);
   }
 
@@ -3557,6 +2953,31 @@ class _CloseMenu extends StatelessWidget {
       hoverColor: _ToolbarTheme.hoverRedColor,
     );
   }
+}
+
+/// 面板 tab 的工具栏入口（设计稿 §1.2）。
+///
+/// 激活态直接读状态机，不自己存一份 bool —— 这样「同一时刻只有一个亮着」
+/// 是结构保证的，不是靠每个按钮各自记得关掉别人。
+class _OverlayTabButton extends StatelessWidget {
+  final SessionOverlayController controller;
+  final OverlayTab tab;
+
+  const _OverlayTabButton({required this.controller, required this.tab});
+
+  @override
+  Widget build(BuildContext context) => Obx(() {
+        final active = controller.active == tab;
+        return _IconMenuButton(
+          icon: Icon(tab.icon, size: 18),
+          tooltip: tab.label,
+          color: active ? _ToolbarTheme.blueColor : _ToolbarTheme.inactiveColor,
+          hoverColor: active
+              ? _ToolbarTheme.hoverBlueColor
+              : _ToolbarTheme.hoverInactiveColor,
+          onPressed: () => controller.toggle(tab),
+        );
+      });
 }
 
 class _IconMenuButton extends StatefulWidget {
