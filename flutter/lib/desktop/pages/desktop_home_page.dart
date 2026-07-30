@@ -56,7 +56,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   final RxBool _block = false.obs;
 
   /// 身份卡一次性密码可见性（规范 §2.1.A 隐藏钮）
-  final RxBool _passwordVisible = true.obs;
+  // 设计稿 §2.2：临时密码默认掩码，点眼睛显示 5 秒后自动回到掩码。
+  // 默认可见等于把一次性口令长期摆在屏幕上，录屏/肩窥都能拿到。
+  final RxBool _passwordVisible = false.obs;
+  Timer? _passwordRemaskTimer;
+  final RxBool _idCopied = false.obs;
 
   final GlobalKey _childKey = GlobalKey();
 
@@ -210,20 +214,17 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         builder: (context, model, child) {
           final showOneTime = model.approveMode != 'click' &&
               model.verificationMethod != kUsePermanentPassword;
-          return Container(
+          // 设计稿 §2.2：整块可点复制，不需要先选中再复制。
+          return InkWell(
+            onTap: () => _copyIdWithPulse(model),
+            borderRadius: BorderRadius.circular(YinheRadius.card),
+            child: Container(
             margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            padding: const EdgeInsets.all(YinheSpacing.s16),
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
             decoration: BoxDecoration(
-              color: YinheColors.surfaceRaisedDark,
               borderRadius: BorderRadius.circular(YinheRadius.card),
-              border: Border.all(color: YinheColors.borderDark, width: 1),
-              // Raised 顶部 1px 内高光近似（规范 §1.2，Flutter 无 inset shadow）
-              gradient: const LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [YinheColors.raisedTopHighlight, Colors.transparent],
-                stops: [0.0, 0.12],
-              ),
+              // 设计稿 §2.2：银河三段渐变 135°
+              gradient: YinheColors.galaxyGradient,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -232,12 +233,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      translate("ID"),
-                      style: const TextStyle(
-                        fontSize: 12,
-                        height: 18 / 12,
+                      translate("ID").toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 11,
+                        height: 16 / 11,
                         fontWeight: FontWeight.w500,
-                        color: YinheColors.textSecondaryDark,
+                        letterSpacing: 11 * 0.12,
+                        color: _kOnGalaxyText.withOpacity(0.72),
                       ),
                     ),
                     buildPopupMenu(context),
@@ -247,12 +249,19 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 Row(
                   children: [
                     Expanded(
-                      child: SelectableText(
-                        model.serverId.text,
-                        style: YinheFonts.numeric(
-                          fontSize: 28,
-                          height: 36,
-                          color: YinheColors.textPrimaryDark,
+                      child: Text(
+                        _groupId(model.serverId.text),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamily: YinheFonts.idDisplay,
+                          fontFamilyFallback: YinheFonts.idDisplayFallback,
+                          fontSize: 30,
+                          height: 38 / 30,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 30 * 0.07,
+                          color: _kOnGalaxyText,
+                          fontFeatures: const [FontFeature('tnum')],
                         ),
                       ),
                     ),
@@ -265,28 +274,44 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 _buildPasswordRow(model, showOneTime),
               ],
             ),
-          );
+          ));
         },
       ),
     );
   }
 
-  /// 32px 复制图标钮（替代双击复制），hover 底 rgba(90,158,255,.12)，
-  /// 复制成功图标 120ms 切换反馈（WS1-4）。
+  /// 银河渐变上的固定文字色。该色不随主题变化，因为它的背景（品牌渐变）
+  /// 也不随主题变化 —— spec §7.4-2 允许的例外。
+  static const Color _kOnGalaxyText = Color(0xFFEAF4FF);
+
+  /// ID 三位一组，用不换行空格分隔（设计稿 §2.2）：876 402 195。
+  /// 用 U+00A0 而不是普通空格，避免在窄栏里被折行拆开。
+  static String _groupId(String id) {
+    final digits = id.replaceAll(' ', '');
+    if (digits.isEmpty) return id;
+    final buf = StringBuffer();
+    for (var i = 0; i < digits.length; i++) {
+      if (i > 0 && i % 3 == 0) buf.write('\u00A0');
+      buf.write(digits[i]);
+    }
+    return buf.toString();
+  }
+
+  void _copyIdWithPulse(ServerModel model) {
+    Clipboard.setData(ClipboardData(text: model.serverId.text));
+    showToast(translate('Copied'));
+    _idCopied.value = true;
+    Future.delayed(YinheMotion.successPulse, () => _idCopied.value = false);
+  }
+
+  /// 32px 复制图标钮（整块也可点，这里保留一个明确的可点目标）。
   Widget _buildCopyIdButton(ServerModel model) {
     final RxBool hover = false.obs;
-    final RxBool copied = false.obs;
+    final copied = _idCopied;
     return Tooltip(
       message: translate('Copy ID'),
       child: InkWell(
-        onTap: () {
-          Clipboard.setData(ClipboardData(text: model.serverId.text));
-          showToast(translate("Copied"));
-          copied.value = true;
-          Future.delayed(const Duration(milliseconds: 1200), () {
-            copied.value = false;
-          });
-        },
+        onTap: () => _copyIdWithPulse(model),
         onHover: (v) => hover.value = v,
         borderRadius: BorderRadius.circular(YinheRadius.controlCompact),
         child: Obx(
@@ -295,7 +320,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             width: 32,
             height: 32,
             decoration: BoxDecoration(
-              color: hover.value ? YinheColors.blue400A12 : Colors.transparent,
+              color: hover.value
+                  ? _kOnGalaxyText.withOpacity(0.14)
+                  : Colors.transparent,
               borderRadius: BorderRadius.circular(YinheRadius.controlCompact),
             ),
             child: AnimatedSwitcher(
@@ -304,9 +331,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                 copied.value ? Icons.check : Icons.copy_outlined,
                 key: ValueKey(copied.value),
                 size: 18,
-                color: copied.value
-                    ? YinheColors.successDark
-                    : YinheColors.textSecondaryDark,
+                color: _kOnGalaxyText,
               ),
             ),
           ),
@@ -324,12 +349,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         AutoSizeText(
-          translate("One-time Password"),
-          style: const TextStyle(
-            fontSize: 12,
-            height: 18 / 12,
+          translate("One-time Password").toUpperCase(),
+          style: TextStyle(
+            fontSize: 11,
+            height: 16 / 11,
             fontWeight: FontWeight.w500,
-            color: YinheColors.textSecondaryDark,
+            letterSpacing: 11 * 0.12,
+            color: _kOnGalaxyText.withOpacity(0.72),
           ),
           maxLines: 1,
         ),
@@ -338,15 +364,14 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           children: [
             Expanded(
               child: Obx(
+                // 掩码固定六位（设计稿 §2.2）：按真实长度打点会把口令位数也泄露出去
                 () => Text(
-                  _passwordVisible.value
-                      ? model.serverPasswd.text
-                      : '•' * model.serverPasswd.text.length,
+                  _passwordVisible.value ? model.serverPasswd.text : '••••••',
                   style: YinheFonts.numeric(
                     fontSize: 18,
                     height: 26,
                     fontWeight: FontWeight.w600,
-                    color: YinheColors.textPrimaryDark,
+                    color: _kOnGalaxyText,
                   ),
                   overflow: TextOverflow.ellipsis,
                   maxLines: 1,
@@ -365,7 +390,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       height: 32,
                       decoration: BoxDecoration(
                         color: refreshHover.value
-                            ? YinheColors.blue400A12
+                            ? _kOnGalaxyText.withOpacity(0.14)
                             : Colors.transparent,
                         borderRadius:
                             BorderRadius.circular(YinheRadius.controlCompact),
@@ -375,9 +400,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                         child: Icon(
                           Icons.refresh,
                           size: 18,
-                          color: refreshHover.value
-                              ? YinheColors.textPrimaryDark
-                              : YinheColors.textSecondaryDark,
+                          color: _kOnGalaxyText.withOpacity(
+                              refreshHover.value ? 1 : 0.78),
                         ),
                       ),
                     ),
@@ -389,7 +413,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               message: translate(
                   _passwordVisible.value ? 'Hide Password' : 'Show Password'),
               child: InkWell(
-                onTap: () => _passwordVisible.value = !_passwordVisible.value,
+                onTap: _togglePasswordVisible,
                 onHover: (v) => hideHover.value = v,
                 borderRadius: BorderRadius.circular(YinheRadius.controlCompact),
                 child: Obx(
@@ -399,7 +423,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                     height: 32,
                     decoration: BoxDecoration(
                       color: hideHover.value
-                          ? YinheColors.blue400A12
+                          ? _kOnGalaxyText.withOpacity(0.14)
                           : Colors.transparent,
                       borderRadius:
                           BorderRadius.circular(YinheRadius.controlCompact),
@@ -409,9 +433,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                           ? Icons.visibility_outlined
                           : Icons.visibility_off_outlined,
                       size: 18,
-                      color: hideHover.value
-                          ? YinheColors.textPrimaryDark
-                          : YinheColors.textSecondaryDark,
+                      color: _kOnGalaxyText.withOpacity(
+                          hideHover.value ? 1 : 0.78),
                     ),
                   ),
                 ),
@@ -433,7 +456,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       height: 32,
                       decoration: BoxDecoration(
                         color: editHover.value
-                            ? YinheColors.blue400A12
+                            ? _kOnGalaxyText.withOpacity(0.14)
                             : Colors.transparent,
                         borderRadius:
                             BorderRadius.circular(YinheRadius.controlCompact),
@@ -441,9 +464,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                       child: Icon(
                         Icons.edit_outlined,
                         size: 18,
-                        color: editHover.value
-                            ? YinheColors.textPrimaryDark
-                            : YinheColors.textSecondaryDark,
+                        color: _kOnGalaxyText.withOpacity(
+                            editHover.value ? 1 : 0.78),
                       ),
                     ),
                   ),
@@ -453,6 +475,18 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         ),
       ],
     );
+  }
+
+  /// 显示 5 秒后自动回到掩码（设计稿 §2.2）。手动收起时把定时器一起取消，
+  /// 否则上一次的定时器会在下一次显示时提前把它关掉。
+  void _togglePasswordVisible() {
+    _passwordRemaskTimer?.cancel();
+    _passwordVisible.value = !_passwordVisible.value;
+    if (_passwordVisible.value) {
+      _passwordRemaskTimer = Timer(const Duration(seconds: 5), () {
+        _passwordVisible.value = false;
+      });
+    }
   }
 
   Widget buildPopupMenu(BuildContext context) {
@@ -467,15 +501,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             width: 32,
             height: 32,
             decoration: BoxDecoration(
-              color: hover.value ? YinheColors.blue400A12 : Colors.transparent,
+              // 这个「更多」钮也在银河渐变上（ID 板右上角）
+              color: hover.value
+                  ? _kOnGalaxyText.withOpacity(0.14)
+                  : Colors.transparent,
               borderRadius: BorderRadius.circular(YinheRadius.controlCompact),
             ),
             child: Icon(
               Icons.more_vert_outlined,
               size: 18,
-              color: hover.value
-                  ? YinheColors.textPrimaryDark
-                  : YinheColors.textSecondaryDark,
+              color: _kOnGalaxyText.withOpacity(hover.value ? 1 : 0.78),
             ),
           ),
         ),
@@ -1042,6 +1077,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
   @override
   void dispose() {
+    _passwordRemaskTimer?.cancel();
     _uniLinksSubscription?.cancel();
     Get.delete<RxBool>(tag: 'stop-service');
     _updateTimer?.cancel();

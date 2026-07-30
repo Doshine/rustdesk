@@ -487,6 +487,8 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("empty_search_title", "没有找到匹配的设备"),
         ("empty_search_subtitle", "换个关键词试试"),
         ("empty_load_failed_tip", "加载失败，点击重试"),
+        ("peers_empty_copy_my_id", "复制我的 ID"),
+        ("peers_empty_clear_filter", "清除筛选"),
         ("state_diagnostic_toggle", "排查信息"),
         ("quality_path_direct", "直连"),
         ("quality_path_relay", "中继"),

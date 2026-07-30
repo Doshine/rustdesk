@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:collection';
 
-import 'package:dynamic_layouts/dynamic_layouts.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/models/ab_model.dart';
@@ -17,7 +17,7 @@ import '../../common.dart';
 import '../../models/peer_model.dart';
 import '../../models/platform_model.dart';
 import 'peer_card.dart';
-import 'empty_state.dart';
+import 'state_view.dart';
 
 typedef PeerFilter = bool Function(Peer peer);
 typedef PeerCardBuilder = Widget Function(Peer peer);
@@ -196,26 +196,66 @@ class _PeersViewState extends State<_PeersView>
     );
   }
 
+  /// 一台设备都没有时的空状态（设计稿 §1.3 / §2.4）。
+  ///
+  /// 每个分页的下一步都不一样，但都必须有下一步——「空空如也」配一句
+  /// 「暂无数据」是最没用的界面。最近会话给的是「复制我的 ID」（让别人连过来）
+  /// 加「去连接」（自己连出去），这两件事覆盖了新用户此刻真正想干的全部。
   Widget _buildEmptyState() {
     switch (widget.peers.loadEvent) {
       case LoadEvent.recent:
-        return EmptyState.noPeers(onConnect: _focusConnectInput);
+        return StateView(
+          kind: StateKind.empty,
+          title: translate('empty_recent_title'),
+          detail: translate('empty_recent_subtitle'),
+          action: StateAction(
+            label: translate('peers_empty_copy_my_id'),
+            onPressed: _copyMyId,
+            secondaryLabel: translate('empty_go_connect'),
+            onSecondaryPressed: _focusConnectInput,
+          ),
+        );
       case LoadEvent.favorite:
-        return EmptyState.noFavorites();
+        return StateView(
+          kind: StateKind.empty,
+          title: translate('empty_favorite_title'),
+          detail: translate('empty_favorite_subtitle'),
+          action: StateAction(
+            label: translate('empty_go_connect'),
+            onPressed: _focusConnectInput,
+          ),
+        );
       case LoadEvent.lan:
-        return EmptyState.noDiscovered();
+        return StateView(
+          kind: StateKind.empty,
+          title: translate('empty_lan_title'),
+          detail: translate('empty_lan_subtitle'),
+          action: StateAction(
+            label: translate('peers_empty_copy_my_id'),
+            onPressed: _copyMyId,
+          ),
+        );
       default:
-        // Address book (logged in but empty) and other lists keep their
-        // existing translated tip, split into title / subtitle on '\n'.
+        // 地址簿等：沿用既有译文，按 '\n' 拆成标题/说明。
         final msg =
             translate(_emptyMessages[widget.peers.loadEvent] ?? 'Empty');
         final parts = msg.split('\n');
-        return EmptyState(
-          icon: Icons.menu_book_outlined,
+        return StateView(
+          kind: StateKind.empty,
           title: parts.first,
-          subtitle: parts.length > 1 ? parts.sublist(1).join('\n') : null,
+          detail: parts.length > 1 ? parts.sublist(1).join('\n') : null,
+          action: StateAction(
+            label: translate('peers_empty_copy_my_id'),
+            onPressed: _copyMyId,
+          ),
         );
     }
+  }
+
+  Future<void> _copyMyId() async {
+    final id = await bind.mainGetMyId();
+    await Clipboard.setData(ClipboardData(text: id));
+    showToast(translate('Copied'));
   }
 
   // Focus the ID input on the connection page. The focus node is registered
@@ -241,16 +281,21 @@ class _PeersViewState extends State<_PeersView>
 
   Widget _buildPeersView(Peers peers) {
     final updateEvent = peers.event;
+    final peers2 = peers.peers;
     final body = ObxValue<RxList>((filters) {
       return FutureBuilder<List<Peer>>(
         builder: (context, snapshot) {
           if (snapshot.hasData) {
             var peers = snapshot.data!;
-            if (peers.length > 1000) peers = peers.sublist(0, 1000);
+            // 这里原本有一句 `if (peers.length > 1000) peers = sublist(0, 1000)`：
+            // 静默丢掉第 1001 台之后的设备，界面上没有任何痕迹，用户只会以为
+            // 设备不见了。列表本身是虚拟化的（ListView/GridView.builder），
+            // 渲染一万台并不需要截断；真正需要设上限的是下面那次批量在线查询。
             if (peers.isEmpty) {
-              // Filtered out by the search text or the tag filter.
               gFFI.peerTabModel.setCurrentTabCachedPeers([]);
-              return EmptyState.noSearchResult();
+              return peers2.isEmpty
+                  ? _buildEmptyState()
+                  : _buildNoMatchState();
             }
             gFFI.peerTabModel.setCurrentTabCachedPeers(peers);
             buildOnePeer(Peer peer, bool isPortrait) {
@@ -269,8 +314,8 @@ class _PeersViewState extends State<_PeersView>
                   ? Obx(() => peerCardUiType.value == PeerUiType.list
                       ? Container(height: 45, child: visibilityChild)
                       : peerCardUiType.value == PeerUiType.grid
-                          ? SizedBox(
-                              width: 220, height: 140, child: visibilityChild)
+                          // 网格模式下宽高由 grid delegate 决定，这里不再写死
+                          ? visibilityChild
                           : SizedBox(
                               width: 220, height: 42, child: visibilityChild))
                   : Container(child: visibilityChild);
@@ -298,18 +343,33 @@ class _PeersViewState extends State<_PeersView>
                               bottom: space / 2);
                         },
                       )
-                    : DynamicGridView.builder(
-                        gridDelegate: SliverGridDelegateWithWrapping(
-                            mainAxisSpacing: space / 2,
-                            crossAxisSpacing: space),
-                        itemCount: peers.length,
-                        itemBuilder: (BuildContext context, int index) {
-                          return buildOnePeer(peers[index], false);
-                        }));
+                    : LayoutBuilder(builder: (context, constraints) {
+                        // 设计稿 §2.3：repeat(auto-fill, minmax(158px, 1fr))，间距 12。
+                        // Flutter 没有等价 delegate，按同样的算法自己算列数：
+                        // 先看这个宽度能塞下几列 158，再把余量平摊给每一列。
+                        final columns = _autoFillColumns(constraints.maxWidth);
+                        return GridView.builder(
+                          controller: _scrollController,
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: columns,
+                            mainAxisSpacing: _kCardGap,
+                            crossAxisSpacing: _kCardGap,
+                            mainAxisExtent: _kCardHeight,
+                          ),
+                          itemCount: peers.length,
+                          itemBuilder: (BuildContext context, int index) {
+                            return buildOnePeer(peers[index], false);
+                          },
+                        );
+                      }));
 
             if (updateEvent == UpdateEvent.load) {
               _curPeers.clear();
-              _curPeers.addAll(peers.map((e) => e.id));
+              // 首屏批量查询在线状态时截断到上限：稳态查询本来就只查可见的卡片
+              // （onVisibilityChanged 维护 _curPeers），一次塞一万个 id 才是问题。
+              _curPeers.addAll(
+                  peers.take(_kMaxInitialOnlineQuery).map((e) => e.id));
               _queryOnlines(true);
             }
             return child;
@@ -319,12 +379,43 @@ class _PeersViewState extends State<_PeersView>
             );
           }
         },
-        future: matchPeers(filters[0].value, filters[1].value, peers.peers),
+        future: matchPeers(filters[0].value, filters[1].value, peers2),
       );
     }, obslist);
 
     return body;
   }
+
+  /// 首屏一次性查询在线状态的上限。超过的设备会在滚动到可见时按可见集补查。
+  static const int _kMaxInitialOnlineQuery = 1000;
+
+  /// 设备卡最小宽与间距（设计稿 §2.3）
+  static const double _kCardMinWidth = 158;
+  static const double _kCardGap = YinheSpacing.s12;
+
+  /// 缩略图区 84 + 信息区（设计稿 §2.3）
+  static const double _kCardHeight = 84 + 46;
+
+  /// 等价于 CSS repeat(auto-fill, minmax(158px, 1fr))
+  static int _autoFillColumns(double maxWidth) {
+    if (!maxWidth.isFinite || maxWidth <= 0) return 1;
+    final n = ((maxWidth + _kCardGap) / (_kCardMinWidth + _kCardGap)).floor();
+    return n < 1 ? 1 : n;
+  }
+
+  /// 有设备但被搜索/标签筛没了——和「一台都没有」是两回事，下一步是清筛选。
+  Widget _buildNoMatchState() => StateView(
+        kind: StateKind.empty,
+        title: translate('empty_search_title'),
+        detail: translate('empty_search_subtitle'),
+        action: StateAction(
+          label: translate('peers_empty_clear_filter'),
+          onPressed: () {
+            peerSearchTextController.clear();
+            peerSearchText.value = '';
+          },
+        ),
+      );
 
   var _queryInterval = const Duration(seconds: 20);
 

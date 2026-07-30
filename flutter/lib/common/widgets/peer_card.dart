@@ -13,6 +13,7 @@ import 'package:provider/provider.dart';
 import '../../common.dart';
 import '../../common/formatter/id_formatter.dart';
 import '../../models/peer_model.dart';
+import 'quality_indicator.dart';
 import '../../models/platform_model.dart';
 import '../../desktop/widgets/material_mod_popup_menu.dart' as mod_menu;
 import '../../desktop/widgets/popup_menu.dart';
@@ -49,7 +50,7 @@ class _PeerCard extends StatefulWidget {
 class _PeerCardState extends State<_PeerCard>
     with AutomaticKeepAliveClientMixin {
   var _menuPos = RelativeRect.fill;
-  final double _cardRadius = 16;
+  final double _cardRadius = YinheRadius.card; // 设计稿 §2.3
   final double _tileRadius = 5;
   final double _borderWidth = 2;
 
@@ -93,7 +94,7 @@ class _PeerCardState extends State<_PeerCard>
     return AnimatedContainer(
       duration: duration,
       curve: YinheMotion.ease,
-      transform: Matrix4.translationValues(0.0, _hovering ? -1.0 : 0.0, 0.0)
+      transform: Matrix4.translationValues(0.0, _hovering ? -2.0 : 0.0, 0.0)
         ..scale(_pressing ? 0.99 : 1.0),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(radius),
@@ -370,20 +371,16 @@ class _PeerCardState extends State<_PeerCard>
               mainAxisSize: MainAxisSize.min,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
+                _buildThumbArea(context, peer),
                 Expanded(
                   child: Container(
-                    color: str2color('${peer.id}${peer.platform}', 0x7f),
+                    color: Colors.transparent,
                     child: Row(
                       children: [
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
-                              Container(
-                                padding: const EdgeInsets.all(6),
-                                child:
-                                    getPlatformImage(peer.platform, size: 60),
-                              ),
                               Row(
                                 children: [
                                   Expanded(
@@ -392,8 +389,8 @@ class _PeerCardState extends State<_PeerCard>
                                       waitDuration: const Duration(seconds: 1),
                                       child: Text(
                                         name,
-                                        style: const TextStyle(
-                                            color: Colors.white70,
+                                        style: TextStyle(
+                                            color: _secondaryTextColor(context),
                                             fontSize: 12),
                                         textAlign: TextAlign.center,
                                         overflow: TextOverflow.ellipsis,
@@ -411,8 +408,8 @@ class _PeerCardState extends State<_PeerCard>
                                       waitDuration: const Duration(seconds: 1),
                                       child: Text(
                                         peer.note,
-                                        style: const TextStyle(
-                                            color: Colors.white38,
+                                        style: TextStyle(
+                                            color: _tertiaryTextColor(context),
                                             fontSize: 10),
                                         textAlign: TextAlign.center,
                                         overflow: TextOverflow.ellipsis,
@@ -433,15 +430,17 @@ class _PeerCardState extends State<_PeerCard>
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Expanded(
-                          child: Row(children: [
-                        getOnline(8, peer.online),
-                        Expanded(
-                            child: Text(
-                          peer.alias.isEmpty ? formatID(peer.id) : peer.alias,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleSmall,
-                        )),
-                      ]).paddingSymmetric(vertical: 8)),
+                          child: Text(
+                        peer.alias.isEmpty ? formatID(peer.id) : peer.alias,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleSmall
+                            ?.copyWith(
+                                color: peer.online
+                                    ? null
+                                    : _tertiaryTextColor(context)),
+                      ).paddingSymmetric(vertical: 8)),
                       checkBoxOrActionMoreLandscape(peer, isTile: false),
                     ],
                   ).paddingSymmetric(horizontal: 12.0),
@@ -479,6 +478,96 @@ class _PeerCardState extends State<_PeerCard>
       ]),
     );
   }
+
+  Color _secondaryTextColor(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark
+          ? YinheColors.textSecondaryDark
+          : YinheColors.textSecondaryLight;
+
+  Color _tertiaryTextColor(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark
+          ? YinheColors.textTertiaryDark
+          : YinheColors.textTertiaryLight;
+
+  /// OS 标识文字（设计稿 §2.3）：没有缩略图缓存时占位。
+  static String _osLabel(String platform) {
+    switch (platform) {
+      case kPeerPlatformMacOS:
+        return 'macOS';
+      case kPeerPlatformLinux:
+        return 'Linux';
+      case kPeerPlatformAndroid:
+        return 'Android';
+      case kPeerPlatformWindows:
+        return 'Win';
+      default:
+        return platform.isEmpty ? '—' : platform;
+    }
+  }
+
+  /// 缩略图区（设计稿 §2.3）：高 84、底 surface.sunken、右上角 8px 质量点。
+  ///
+  /// 会话最后一帧的本地缩略图缓存尚未实现，所以现在恒为「无缓存」态，
+  /// 按设计稿显示 OS 标识文字（26px，opacity .28）。
+  ///
+  /// 质量点这里只能表示在线/离线：设备列表拿不到实测 RTT（§1.1 的数据源
+  /// 是会话中的 QualityMonitorModel），所以不做 good/fair/poor 分档，
+  /// 也不拿一个假的延迟值去着色。
+  Widget _buildThumbArea(BuildContext context, Peer peer) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final label = Text(
+      _osLabel(peer.platform),
+      style: TextStyle(
+        fontSize: 26,
+        fontWeight: FontWeight.w600,
+        color: (dark
+                ? YinheColors.textPrimaryDark
+                : YinheColors.textPrimaryLight)
+            .withOpacity(0.28),
+      ),
+    );
+    return SizedBox(
+      height: 84,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: Container(
+              color: dark
+                  ? YinheColors.surfaceSunkenDark
+                  : YinheColors.surfaceSunkenLight,
+              alignment: Alignment.center,
+              // 离线：整块去色压暗（设计稿 §2.3）
+              child: peer.online
+                  ? label
+                  : Opacity(
+                      opacity: 0.45,
+                      child: ColorFiltered(
+                        colorFilter: const ColorFilter.matrix(_kGrayscale),
+                        child: label,
+                      ),
+                    ),
+            ),
+          ),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: QualityDot(
+              tier: peer.online ? QualityTier.good : QualityTier.offline,
+              isDark: dark,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 标准灰度矩阵（等价 CSS grayscale(1)）
+  static const List<double> _kGrayscale = <double>[
+    0.2126, 0.7152, 0.0722, 0, 0, //
+    0.2126, 0.7152, 0.0722, 0, 0, //
+    0.2126, 0.7152, 0.0722, 0, 0, //
+    0, 0, 0, 1, 0, //
+  ];
 
   List _frontN<T>(List list, int n) {
     if (list.length <= n) {
