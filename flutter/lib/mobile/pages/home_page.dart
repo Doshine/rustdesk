@@ -8,6 +8,7 @@ import '../../common/widgets/chat_page.dart';
 import '../../models/platform_model.dart';
 import '../../models/state_model.dart';
 import 'connection_page.dart';
+import 'first_run_wizard.dart';
 
 abstract class PageShape extends Widget {
   final String title = "";
@@ -26,6 +27,9 @@ class HomePage extends StatefulWidget {
 
 class HomePageState extends State<HomePage> {
   var _selectedIndex = 0;
+
+  /// 首次启动向导（设计稿 §6.3）。只在从未走完过时出现一次。
+  bool _showWizard = FirstRunWizard.pending;
   int get selectedIndex => _selectedIndex;
   final List<PageShape> _pages = [];
   int _chatPageTabIndex = -1;
@@ -105,7 +109,19 @@ class HomePageState extends State<HomePage> {
           }
           return false;
         },
-        child: Scaffold(
+        child: _showWizard
+            ? FirstRunWizard(
+                onDone: () => setState(() => _showWizard = false),
+                onOpenServerPage: () {
+                  // 「去授权」直接落到设备页：向导只告知，真正的授权入口在那里
+                  final i = _pages.indexWhere((p) => p is ServerPage);
+                  setState(() {
+                    _showWizard = false;
+                    if (i >= 0) _selectedIndex = i;
+                  });
+                },
+              )
+            : Scaffold(
           // backgroundColor: MyTheme.grayBg,
           appBar: AppBar(
             centerTitle: true,

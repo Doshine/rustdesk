@@ -318,7 +318,12 @@ class _PeersViewState extends State<_PeersView>
                           ? visibilityChild
                           : SizedBox(
                               width: 220, height: 42, child: visibilityChild))
-                  : Container(child: visibilityChild);
+                  // 设计稿 §6.1：移动端设备行高 ≥ 56。现在的内容凑出来大约 66，
+                  // 但那是内容碰巧撑起来的——改一次内边距或字号就可能掉到 56 以下，
+                  // 所以把下限写死而不是依赖内容。
+                  : ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 56),
+                      child: visibilityChild);
             }
 
             // We should avoid too many rebuilds. Win10(Some machines) on Flutter 3.19.6.
