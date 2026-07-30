@@ -39,8 +39,11 @@ _ToolbarEdge _parseToolbarEdge(String? s) {
       return _ToolbarEdge.bottom;
     case 'left':
       return _ToolbarEdge.left;
-    default:
+    case 'top':
       return _ToolbarEdge.top;
+    default:
+      // 设计稿 §4.3：默认底部居中。顶部留给质量 HUD（§4.2）。
+      return _ToolbarEdge.bottom;
   }
 }
 
@@ -148,6 +151,21 @@ String _toolbarRawFraction({
 // Returns the alignment for the wrapper Align that positions the entire
 // toolbar against the given edge at the given fraction along that edge.
 // Alignment uses [-1, 1] coordinates (0 = center).
+/// 贴边工具栏的圆角：朝画面内侧的两角圆、贴边的两角直角（设计稿 §4.3）。
+BorderRadius _dockedBorderRadius(_ToolbarEdge edge) {
+  const r = Radius.circular(_ToolbarTheme.dockedRadius);
+  switch (edge) {
+    case _ToolbarEdge.bottom:
+      return const BorderRadius.only(topLeft: r, topRight: r);
+    case _ToolbarEdge.top:
+      return const BorderRadius.only(bottomLeft: r, bottomRight: r);
+    case _ToolbarEdge.left:
+      return const BorderRadius.only(topRight: r, bottomRight: r);
+    case _ToolbarEdge.right:
+      return const BorderRadius.only(topLeft: r, bottomLeft: r);
+  }
+}
+
 Alignment _alignmentForEdge(_ToolbarEdge edge, double fraction) {
   final f = fraction * 2 - 1;
   switch (edge) {
@@ -328,11 +346,18 @@ class ToolbarState {
 }
 
 class _ToolbarTheme {
-  static const Color blueColor = MyTheme.button;
-  static const Color hoverBlueColor = MyTheme.accent;
-  // tokens v2.1: surfaceRaisedDark / surfaceDark（hover 更暗，保持旧 grey 关系）
-  static Color inactiveColor = YinheColors.surfaceRaisedDark;
-  static Color hoverInactiveColor = YinheColors.surfaceDark;
+  // 设计稿 §4.3：工具栏按钮从「实心填充」改为「底色提示」——
+  // 常态透明，hover 是一层很淡的品牌蓝，激活态是一层星河青。
+  // 实心填充在会话画面上太抢眼，而工具栏本来就该安静。
+  /// 激活态底色 rgba(0,194,255,.16)
+  static final Color blueColor = YinheColors.cyan500.withOpacity(.16);
+
+  /// 激活态 hover 再深一点
+  static final Color hoverBlueColor = YinheColors.cyan500.withOpacity(.24);
+
+  /// 常态透明；hover rgba(90,158,255,.14)
+  static const Color inactiveColor = Colors.transparent;
+  static final Color hoverInactiveColor = YinheColors.blue400.withOpacity(.14);
 
   static const Color redColor = MyTheme.danger; // tokens semantic.danger (v2.1)
   // hover 态「再深一档」：danger 没有色阶 token，改为由 danger 派生而不是另写字面值，
@@ -350,6 +375,9 @@ class _ToolbarTheme {
   /// 圆角 12（旧值 4 已废弃）
   static const double toolbarRadius = YinheRadius.card;
 
+  /// 贴边工具栏的圆角（设计稿 §4.3）
+  static const double dockedRadius = YinheRadius.promo; // 16
+
   /// Elevation 2（深色）：0 10px 28px rgba(2,6,14,.38) + 0 1px 3px rgba(2,6,14,.28)
   static const List<BoxShadow> toolbarShadow = YinheElevation.elev2Dark;
 
@@ -357,7 +385,7 @@ class _ToolbarTheme {
   static const double height = 20.0;
   static const double dividerHeight = 12.0;
 
-  static const double buttonSize = 32;
+  static const double buttonSize = 34; // 设计稿 §4.3
   static const double buttonHMargin = 2;
   static const double buttonVMargin = 6;
   static const double iconRadius = 8;
@@ -491,7 +519,7 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
   late Debouncer<int> _debouncerHide;
   bool _isCursorOverImage = false;
   final _fraction = 0.5.obs;
-  final _edge = _ToolbarEdge.top.obs;
+  final _edge = _ToolbarEdge.bottom.obs;
   final _dragging = false.obs;
   // Live drag preview: where the toolbar would dock if the user dropped now.
   final _previewEdge = Rxn<_ToolbarEdge>();
@@ -569,7 +597,8 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
     var savedFractionForNextEdge = savedFraction;
     var keepCurrentPosition = false;
     if (!multiEdgeEnabled) {
-      nextEdge = _ToolbarEdge.top;
+      // 单边模式固定底部居中（设计稿 §4.3）
+      nextEdge = _ToolbarEdge.bottom;
     } else if (force || wasMultiEdgeEnabled || cached == null) {
       final edgeStr = await bind.sessionGetOption(
           sessionId: widget.ffi.sessionId, arg: kOptionRemoteMenubarEdge);
@@ -925,8 +954,9 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
         _CloseMenu(id: widget.id, ffi: widget.ffi),
       ],
     ];
-    final toolbarBorderRadius =
-        const BorderRadius.all(Radius.circular(_ToolbarTheme.toolbarRadius));
+    // 贴边：只有朝画面内侧的两角是圆的（设计稿 §4.3 的 16px 16px 0 0），
+    // 贴住窗口边的那两角保持直角，视觉上才是「贴边」而不是「浮着」。
+    final toolbarBorderRadius = _dockedBorderRadius(edge);
     // innerAxis: how the toolbar icons themselves flow.
     // outerAxis: how the toolbar block and the handle stack against each other
     // (perpendicular to the dock edge, so the handle hangs off the interior face).
@@ -2969,7 +2999,9 @@ class _OverlayTabButton extends StatelessWidget {
   Widget build(BuildContext context) => Obx(() {
         final active = controller.active == tab;
         return _IconMenuButton(
-          icon: Icon(tab.icon, size: 18),
+          icon: Icon(tab.icon,
+              size: 18,
+              color: active ? MyTheme.accent : YinheColors.textSecondaryDark),
           tooltip: tab.label,
           color: active ? _ToolbarTheme.blueColor : _ToolbarTheme.inactiveColor,
           hoverColor: active
@@ -3521,8 +3553,9 @@ class _DraggableShowHideState extends State<_DraggableShowHide> {
     final isFullscreen = stateGlobal.fullscreen;
     const double iconSize = 20;
 
-    buttonWrapper(VoidCallback? onPressed, Widget child,
-        {Color hoverColor = _ToolbarTheme.blueColor}) {
+    // blueColor 现在带透明度、不再是编译期常量，默认值改成运行期取
+    buttonWrapper(VoidCallback? onPressed, Widget child, {Color? hoverColor}) {
+      final hover = hoverColor ?? _ToolbarTheme.blueColor;
       final bgColor = buttonStyle.backgroundColor?.resolve({});
       return TextButton(
         onPressed: onPressed,
@@ -3530,7 +3563,7 @@ class _DraggableShowHideState extends State<_DraggableShowHide> {
         style: buttonStyle.copyWith(
           backgroundColor: MaterialStateProperty.resolveWith((states) {
             if (states.contains(MaterialState.hovered)) {
-              return (bgColor ?? hoverColor).withOpacity(0.15);
+              return (bgColor ?? hover).withOpacity(0.15);
             }
             return bgColor;
           }),
